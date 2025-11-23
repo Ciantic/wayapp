@@ -1,3 +1,5 @@
+// Original here: https://github.com/Smithay/client-toolkit/blob/master/examples/wgpu.rs
+
 mod egui_renderer;
 mod egui_app;
 mod input_handler;
