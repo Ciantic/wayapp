@@ -1,3 +1,6 @@
+// Original for Winit: 
+// https://github.com/kaphula/winit-egui-wgpu-template/blob/master/src/egui_tools.rs
+
 use egui::Context;
 use egui_wgpu::wgpu::{CommandEncoder, Device, Queue, StoreOp, TextureFormat, TextureView};
 use egui_wgpu::{Renderer, RendererOptions, ScreenDescriptor, wgpu};
