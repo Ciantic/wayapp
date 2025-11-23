@@ -12,8 +12,9 @@ pub struct InputState {
     screen_width: u32,
     screen_height: u32,
     start_time: Instant,
-    pressed_keys: std::collections::HashSet<u32>,
+    // pressed_keys: std::collections::HashSet<u32>,
     clipboard: Clipboard,
+    last_key_utf8: Option<String>,
 }
 
 impl InputState {
@@ -25,8 +26,9 @@ impl InputState {
             screen_width: 256,
             screen_height: 256,
             start_time: Instant::now(),
-            pressed_keys: std::collections::HashSet::new(),
+            // pressed_keys: std::collections::HashSet::new(),
             clipboard,
+            last_key_utf8: None,
         }
     }
 
@@ -98,18 +100,10 @@ impl InputState {
         }
     }
 
-    pub fn handle_keyboard_event(&mut self, event: &KeyEvent, pressed: bool) {
-        println!("[INPUT] Keyboard event - keysym: {:?}, raw_code: {}, pressed: {}, utf8: {:?}", 
-                 event.keysym.raw(), event.raw_code, pressed, event.utf8);
+    pub fn handle_keyboard_event(&mut self, event: &KeyEvent, pressed: bool, is_repeat: bool) {
+        println!("[INPUT] Keyboard event - keysym: {:?}, raw_code: {}, pressed: {}, repeat: {}, utf8: {:?}", 
+                 event.keysym.raw(), event.raw_code, pressed, is_repeat, event.utf8);
         
-        // Track which keys are pressed to determine repeat
-        let is_repeat = if pressed {
-            !self.pressed_keys.insert(event.raw_code)
-        } else {
-            self.pressed_keys.remove(&event.raw_code);
-            false
-        };
-
         // Check for clipboard operations BEFORE general key handling
         if pressed && !is_repeat && self.modifiers.ctrl {
             // XKB key constants
@@ -127,6 +121,7 @@ impl InputState {
 
         if let Some(key) = keysym_to_egui_key(event.keysym) {
             println!("[INPUT] Mapped to EGUI key: {:?}, repeat: {}", key, is_repeat);
+            // Note: Egui expects repeats to have pressed=true
             self.events.push(Event::Key {
                 key,
                 physical_key: None,
@@ -134,19 +129,21 @@ impl InputState {
                 repeat: is_repeat,
                 modifiers: self.modifiers,
             });
+            if pressed || is_repeat {
+                let text = event.utf8.clone().or(self.last_key_utf8.clone());
+                if let Some(text) = text {
+                    if !text.chars().any(|c| c.is_control()) {
+                        println!("[INPUT] Text input: '{}'", text);
+                        self.events.push(Event::Text(text.clone()));
+                    }
+                }
+            }
         } else {
             println!("[INPUT] No EGUI key mapping for keysym: {:?}", event.keysym.raw());
         }
 
-        // Handle text input only on press and not repeat
-        if pressed && !is_repeat {
-            if let Some(text) = event.utf8.as_ref() {
-                // Filter out control characters
-                if !text.chars().any(|c| c.is_control()) {
-                    println!("[INPUT] Text input: '{}'", text);
-                    self.events.push(Event::Text(text.clone()));
-                }
-            }
+        if event.utf8.is_some() {
+            self.last_key_utf8 = event.utf8.clone();
         }
     }
 
@@ -163,9 +160,9 @@ impl InputState {
     }
 
     /// Get current modifiers state
-    pub fn get_modifiers(&self) -> &Modifiers {
-        &self.modifiers
-    }
+    // pub fn get_modifiers(&self) -> &Modifiers {
+    //     &self.modifiers
+    // }
 
     pub fn take_raw_input(&mut self) -> RawInput {
         let events = std::mem::take(&mut self.events);
@@ -196,7 +193,7 @@ impl InputState {
                 self.clipboard.store(text.clone());
                 println!("[INPUT] Copied text to clipboard: {:?}", text);
             },
-            egui::OutputCommand::CopyImage(image) => {
+            egui::OutputCommand::CopyImage(_image) => {
                 // Handle image copy if needed
                 println!("[INPUT] CopyImage command received (not implemented)");
                 // TODO: Implement image copying to clipboard if required
@@ -204,9 +201,6 @@ impl InputState {
             egui::OutputCommand::OpenUrl(url) => {
                 println!("[INPUT] OpenUrl command received: {}", url.url);
             },
-            _ => {
-
-            }
         }
     }
 }

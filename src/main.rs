@@ -449,7 +449,7 @@ impl KeyboardHandler for MainState {
         println!("[MAIN] Key pressed");
 
         
-        self.input_state.handle_keyboard_event(&event, true);
+        self.input_state.handle_keyboard_event(&event, true, false);
         
         // Request a redraw after input
         println!("[MAIN] Requesting frame after key press");
@@ -465,7 +465,7 @@ impl KeyboardHandler for MainState {
         _serial: u32,
         event: KeyEvent,
     ) {
-        self.input_state.handle_keyboard_event(&event, false);
+        self.input_state.handle_keyboard_event(&event, false, false);
     }
 
     fn update_modifiers(
@@ -489,7 +489,7 @@ impl KeyboardHandler for MainState {
         _serial: u32,
         event: KeyEvent,
     ) {
-        self.input_state.handle_keyboard_event(&event, true);
+        self.input_state.handle_keyboard_event(&event, true, true);
         // Request a redraw after input
         self.window.wl_surface().frame(&_qh, self.window.wl_surface().clone());
         self.window.wl_surface().commit();
