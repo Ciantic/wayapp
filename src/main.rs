@@ -1,4 +1,8 @@
 mod egui_renderer;
+mod egui_app;
+
+use crate::egui_renderer::EguiRenderer;
+use crate::egui_app::EguiApp;
 use raw_window_handle::{
     RawDisplayHandle, RawWindowHandle, WaylandDisplayHandle, WaylandWindowHandle,
 };
@@ -92,6 +96,9 @@ fn main() {
         surface,
         adapter,
         queue,
+        
+        egui_renderer: None,
+        egui_app: EguiApp::new(),
     };
 
     // We don't draw immediately, the configure will notify us when to first draw.
@@ -123,6 +130,9 @@ struct Wgpu {
     device: wgpu::Device,
     queue: wgpu::Queue,
     surface: wgpu::Surface<'static>,
+    
+    egui_renderer: Option<EguiRenderer>,
+    egui_app: EguiApp,
 }
 
 impl CompositorHandler for Wgpu {
@@ -243,22 +253,33 @@ impl WindowHandler for Wgpu {
 
         surface.configure(&self.device, &surface_config);
 
-        // We don't plan to render much in this example, just clear the surface.
+        // Initialize EGUI renderer if not already done
+        if self.egui_renderer.is_none() {
+            self.egui_renderer = Some(EguiRenderer::new(
+                device,
+                surface_config.format,
+                None,
+                1,
+            ));
+        }
+
         let surface_texture =
             surface.get_current_texture().expect("failed to acquire next swapchain texture");
         let texture_view =
             surface_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         let mut encoder = device.create_command_encoder(&Default::default());
+        
+        // Clear the surface first
         {
             let _renderpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: None,
+                label: Some("clear pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &texture_view,
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLUE),
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -266,6 +287,33 @@ impl WindowHandler for Wgpu {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
+        }
+        
+        // Render EGUI
+        if let Some(renderer) = &mut self.egui_renderer {
+            let raw_input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(self.width as f32, self.height as f32),
+                )),
+                ..Default::default()
+            };
+            
+            renderer.begin_frame(raw_input);
+            self.egui_app.ui(renderer.context());
+            
+            let screen_descriptor = egui_wgpu::ScreenDescriptor {
+                size_in_pixels: [self.width, self.height],
+                pixels_per_point: 1.0,
+            };
+            
+            let _platform_output = renderer.end_frame_and_draw(
+                device,
+                queue,
+                &mut encoder,
+                &texture_view,
+                screen_descriptor,
+            );
         }
 
         // Submit the command in the queue to execute
