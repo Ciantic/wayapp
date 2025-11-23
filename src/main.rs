@@ -99,6 +99,7 @@ fn main() {
         exit: false,
         width: 256,
         height: 256,
+        scale_factor: 1,
         window,
         device,
         surface,
@@ -133,6 +134,7 @@ struct MainState {
     exit: bool,
     width: u32,
     height: u32,
+    scale_factor: i32,
     window: Window,
 
     adapter: wgpu::Adapter,
@@ -191,9 +193,11 @@ impl MainState {
             renderer.begin_frame(raw_input);
             self.egui_app.ui(renderer.context());
             
+            // For Wayland: configure surface at physical resolution, render egui at logical resolution
+            // pixels_per_point tells egui how many physical pixels per logical point
             let screen_descriptor = egui_wgpu::ScreenDescriptor {
-                size_in_pixels: [self.width, self.height],
-                pixels_per_point: 1.0,
+                size_in_pixels: [self.width * self.scale_factor as u32, self.height * self.scale_factor as u32],
+                pixels_per_point: self.scale_factor as f32,
             };
             
             let platform_output = renderer.end_frame_and_draw(
@@ -227,11 +231,15 @@ impl CompositorHandler for MainState {
     fn scale_factor_changed(
         &mut self,
         _conn: &Connection,
-        _qh: &QueueHandle<Self>,
+        qh: &QueueHandle<Self>,
         _surface: &wl_surface::WlSurface,
-        _new_factor: i32,
+        new_factor: i32,
     ) {
-        // Not needed for this example.
+        println!("[MAIN] Scale factor changed to {}", new_factor);
+        self.scale_factor = new_factor;
+        // Request a redraw with the new scale factor
+        self.window.wl_surface().frame(qh, self.window.wl_surface().clone());
+        self.window.wl_surface().commit();
     }
 
     fn transform_changed(
@@ -336,14 +344,17 @@ impl WindowHandler for MainState {
             format: cap.formats[0],
             view_formats: vec![cap.formats[0]],
             alpha_mode: wgpu::CompositeAlphaMode::Auto,
-            width: self.width,
-            height: self.height,
+            width: self.width * self.scale_factor as u32,
+            height: self.height * self.scale_factor as u32,
             desired_maximum_frame_latency: 2,
             // Wayland is inherently a mailbox system.
             present_mode: wgpu::PresentMode::Mailbox,
         };
 
         surface.configure(&self.device, &surface_config);
+        
+        // Tell Wayland we're providing a buffer at scale_factor resolution
+        self.window.wl_surface().set_buffer_scale(self.scale_factor);
 
         // Initialize EGUI renderer if not already done
         if self.egui_renderer.is_none() {
