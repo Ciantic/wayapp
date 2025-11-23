@@ -1,19 +1,25 @@
 mod egui_renderer;
 mod egui_app;
+mod input_handler;
 
 use crate::egui_renderer::EguiRenderer;
 use crate::egui_app::EguiApp;
+use crate::input_handler::InputState;
 use raw_window_handle::{
     RawDisplayHandle, RawWindowHandle, WaylandDisplayHandle, WaylandWindowHandle,
 };
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
     delegate_compositor, delegate_output, delegate_registry, delegate_seat, delegate_xdg_shell,
-    delegate_xdg_window,
+    delegate_xdg_window, delegate_keyboard, delegate_pointer,
     output::{OutputHandler, OutputState},
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
-    seat::{Capability, SeatHandler, SeatState},
+    seat::{
+        Capability, SeatHandler, SeatState,
+        keyboard::{KeyboardHandler, KeyEvent},
+        pointer::{PointerHandler, PointerEvent},
+    },
     shell::{
         xdg::{
             window::{Window, WindowConfigure, WindowDecorations, WindowHandler},
@@ -99,6 +105,7 @@ fn main() {
         
         egui_renderer: None,
         egui_app: EguiApp::new(),
+        input_state: InputState::new(),
     };
 
     // We don't draw immediately, the configure will notify us when to first draw.
@@ -133,6 +140,73 @@ struct Wgpu {
     
     egui_renderer: Option<EguiRenderer>,
     egui_app: EguiApp,
+    input_state: InputState,
+}
+
+impl Wgpu {
+    fn render(&mut self) {
+        println!("[MAIN] Render called");
+        
+        if self.egui_renderer.is_none() {
+            println!("[MAIN] Skipping render - EGUI renderer not initialized yet");
+            return;
+        }
+
+        let surface_texture = match self.surface.get_current_texture() {
+            Ok(texture) => texture,
+            Err(e) => {
+                println!("[MAIN] Failed to acquire swapchain texture: {:?}", e);
+                return;
+            }
+        };
+        
+        let texture_view = surface_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = self.device.create_command_encoder(&Default::default());
+        
+        // Clear the surface first
+        {
+            let _renderpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("clear pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &texture_view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+        }
+        
+        // Render EGUI
+        if let Some(renderer) = &mut self.egui_renderer {
+            let raw_input = self.input_state.take_raw_input();
+            
+            renderer.begin_frame(raw_input);
+            self.egui_app.ui(renderer.context());
+            
+            let screen_descriptor = egui_wgpu::ScreenDescriptor {
+                size_in_pixels: [self.width, self.height],
+                pixels_per_point: 1.0,
+            };
+            
+            let _platform_output = renderer.end_frame_and_draw(
+                &self.device,
+                &self.queue,
+                &mut encoder,
+                &texture_view,
+                screen_descriptor,
+            );
+        }
+
+        // Submit the command in the queue to execute
+        self.queue.submit(Some(encoder.finish()));
+        surface_texture.present();
+    }
 }
 
 impl CompositorHandler for Wgpu {
@@ -159,10 +233,15 @@ impl CompositorHandler for Wgpu {
     fn frame(
         &mut self,
         _conn: &Connection,
-        _qh: &QueueHandle<Self>,
+        qh: &QueueHandle<Self>,
         _surface: &wl_surface::WlSurface,
         _time: u32,
     ) {
+        println!("[MAIN] Frame callback");
+        self.render();
+        // Request the next frame
+        self.window.wl_surface().frame(qh, self.window.wl_surface().clone());
+        self.window.wl_surface().commit();
     }
 
     fn surface_enter(
@@ -229,14 +308,16 @@ impl WindowHandler for Wgpu {
         configure: WindowConfigure,
         _serial: u32,
     ) {
+        println!("[MAIN] Configure called");
         let (new_width, new_height) = configure.new_size;
         self.width = new_width.map_or(256, |v| v.get());
         self.height = new_height.map_or(256, |v| v.get());
+        self.input_state.set_screen_size(self.width, self.height);
+        println!("[MAIN] Window size: {}x{}", self.width, self.height);
 
         let adapter = &self.adapter;
         let surface = &self.surface;
         let device = &self.device;
-        let queue = &self.queue;
 
         let cap = surface.get_capabilities(&adapter);
         let surface_config = wgpu::SurfaceConfiguration {
@@ -263,62 +344,109 @@ impl WindowHandler for Wgpu {
             ));
         }
 
-        let surface_texture =
-            surface.get_current_texture().expect("failed to acquire next swapchain texture");
-        let texture_view =
-            surface_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        // Render the frame
+        self.render();
+    }
+}
 
-        let mut encoder = device.create_command_encoder(&Default::default());
-        
-        // Clear the surface first
-        {
-            let _renderpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("clear pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &texture_view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
+impl PointerHandler for Wgpu {
+    fn pointer_frame(
+        &mut self,
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+        _pointer: &wayland_client::protocol::wl_pointer::WlPointer,
+        events: &[PointerEvent],
+    ) {
+        println!("[MAIN] Pointer frame with {} events", events.len());
+        for event in events {
+            self.input_state.handle_pointer_event(event);
         }
-        
-        // Render EGUI
-        if let Some(renderer) = &mut self.egui_renderer {
-            let raw_input = egui::RawInput {
-                screen_rect: Some(egui::Rect::from_min_size(
-                    egui::Pos2::ZERO,
-                    egui::vec2(self.width as f32, self.height as f32),
-                )),
-                ..Default::default()
-            };
-            
-            renderer.begin_frame(raw_input);
-            self.egui_app.ui(renderer.context());
-            
-            let screen_descriptor = egui_wgpu::ScreenDescriptor {
-                size_in_pixels: [self.width, self.height],
-                pixels_per_point: 1.0,
-            };
-            
-            let _platform_output = renderer.end_frame_and_draw(
-                device,
-                queue,
-                &mut encoder,
-                &texture_view,
-                screen_descriptor,
-            );
-        }
+        // Request a redraw after input
+        println!("[MAIN] Requesting frame after pointer input");
+        self.window.wl_surface().frame(&_qh, self.window.wl_surface().clone());
+        self.window.wl_surface().commit();
+    }
+}
 
-        // Submit the command in the queue to execute
-        queue.submit(Some(encoder.finish()));
-        surface_texture.present();
+impl KeyboardHandler for Wgpu {
+    fn enter(
+        &mut self,
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+        _keyboard: &wayland_client::protocol::wl_keyboard::WlKeyboard,
+        _surface: &wl_surface::WlSurface,
+        _serial: u32,
+        _raw: &[u32],
+        _keysyms: &[smithay_client_toolkit::seat::keyboard::Keysym],
+    ) {
+        println!("[MAIN] Keyboard focus gained");
+        // Keyboard focus gained
+    }
+
+    fn leave(
+        &mut self,
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+        _keyboard: &wayland_client::protocol::wl_keyboard::WlKeyboard,
+        _surface: &wl_surface::WlSurface,
+        _serial: u32,
+    ) {
+        println!("[MAIN] Keyboard focus lost");
+        // Keyboard focus lost
+    }
+
+    fn press_key(
+        &mut self,
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+        _keyboard: &wayland_client::protocol::wl_keyboard::WlKeyboard,
+        _serial: u32,
+        event: KeyEvent,
+    ) {
+        println!("[MAIN] Key pressed");
+        self.input_state.handle_keyboard_event(&event, true);
+        // Request a redraw after input
+        println!("[MAIN] Requesting frame after key press");
+        self.window.wl_surface().frame(&_qh, self.window.wl_surface().clone());
+        self.window.wl_surface().commit();
+    }
+
+    fn release_key(
+        &mut self,
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+        _keyboard: &wayland_client::protocol::wl_keyboard::WlKeyboard,
+        _serial: u32,
+        event: KeyEvent,
+    ) {
+        self.input_state.handle_keyboard_event(&event, false);
+    }
+
+    fn update_modifiers(
+        &mut self,
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+        _keyboard: &wayland_client::protocol::wl_keyboard::WlKeyboard,
+        _serial: u32,
+        modifiers: smithay_client_toolkit::seat::keyboard::Modifiers,
+        _raw_modifiers: smithay_client_toolkit::seat::keyboard::RawModifiers,
+        _layout: u32,
+    ) {
+        self.input_state.update_modifiers(&modifiers);
+    }
+
+    fn repeat_key(
+        &mut self,
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+        _keyboard: &wayland_client::protocol::wl_keyboard::WlKeyboard,
+        _serial: u32,
+        event: KeyEvent,
+    ) {
+        self.input_state.handle_keyboard_event(&event, true);
+        // Request a redraw after input
+        self.window.wl_surface().frame(&_qh, self.window.wl_surface().clone());
+        self.window.wl_surface().commit();
     }
 }
 
@@ -332,10 +460,17 @@ impl SeatHandler for Wgpu {
     fn new_capability(
         &mut self,
         _conn: &Connection,
-        _qh: &QueueHandle<Self>,
-        _seat: wl_seat::WlSeat,
-        _capability: Capability,
+        qh: &QueueHandle<Self>,
+        seat: wl_seat::WlSeat,
+        capability: Capability,
     ) {
+        println!("[MAIN] New seat capability: {:?}", capability);
+        if capability == Capability::Keyboard && self.seat_state.get_keyboard(qh, &seat, None).is_err() {
+            println!("[MAIN] Failed to get keyboard");
+        }
+        if capability == Capability::Pointer && self.seat_state.get_pointer(qh, &seat).is_err() {
+            println!("[MAIN] Failed to get pointer");
+        }
     }
 
     fn remove_capability(
@@ -354,6 +489,8 @@ delegate_compositor!(Wgpu);
 delegate_output!(Wgpu);
 
 delegate_seat!(Wgpu);
+delegate_keyboard!(Wgpu);
+delegate_pointer!(Wgpu);
 
 delegate_xdg_shell!(Wgpu);
 delegate_xdg_window!(Wgpu);
