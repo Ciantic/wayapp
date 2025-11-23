@@ -13,14 +13,14 @@ use raw_window_handle::{
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
     delegate_compositor, delegate_output, delegate_registry, delegate_seat, delegate_xdg_shell,
-    delegate_xdg_window, delegate_keyboard, delegate_pointer,
+    delegate_xdg_window, delegate_keyboard, delegate_pointer, delegate_shm,
     output::{OutputHandler, OutputState},
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
     seat::{
         Capability, SeatHandler, SeatState,
         keyboard::{KeyboardHandler, KeyEvent},
-        pointer::{PointerHandler, PointerEvent},
+        pointer::{PointerHandler, PointerEvent, ThemedPointer, ThemeSpec, CursorIcon as WaylandCursorIcon},
     },
     shell::{
         xdg::{
@@ -29,6 +29,7 @@ use smithay_client_toolkit::{
         },
         WaylandSurface,
     },
+    shm::{Shm, ShmHandler},
 };
 use std::ptr::NonNull;
 use wayland_client::{
@@ -48,6 +49,7 @@ fn main() {
     let compositor_state =
         CompositorState::bind(&globals, &qh).expect("wl_compositor not available");
     let xdg_shell_state = XdgShell::bind(&globals, &qh).expect("xdg shell not available");
+    let shm_state = Shm::bind(&globals, &qh).expect("wl_shm not available");
 
     let surface = compositor_state.create_surface(&qh);
     // Create the window for adapter selection
@@ -95,6 +97,7 @@ fn main() {
         registry_state: RegistryState::new(&globals),
         seat_state: SeatState::new(&globals, &qh),
         output_state: OutputState::new(&globals, &qh),
+        shm_state,
 
         exit: false,
         width: 256,
@@ -109,6 +112,7 @@ fn main() {
         egui_renderer: None,
         egui_app: EguiApp::new(),
         input_state: InputState::new(),
+        themed_pointer: None,
     };
 
     // We don't draw immediately, the configure will notify us when to first draw.
@@ -130,6 +134,7 @@ struct MainState {
     registry_state: RegistryState,
     seat_state: SeatState,
     output_state: OutputState,
+    shm_state: Shm,
 
     exit: bool,
     width: u32,
@@ -145,10 +150,11 @@ struct MainState {
     egui_renderer: Option<EguiRenderer>,
     egui_app: EguiApp,
     input_state: InputState,
+    themed_pointer: Option<ThemedPointer>,
 }
 
 impl MainState {
-    fn render(&mut self, qh: &QueueHandle<Self>) {
+    fn render(&mut self, conn: &Connection, qh: &QueueHandle<Self>) {
         println!("[MAIN] Render called");
         
         if self.egui_renderer.is_none() {
@@ -208,6 +214,12 @@ impl MainState {
                 screen_descriptor,
             );
             
+            // Handle cursor icon changes from EGUI
+            if let Some(themed_pointer) = &self.themed_pointer {
+                let cursor_icon = egui_to_wayland_cursor(platform_output.cursor_icon);
+                let _ = themed_pointer.set_cursor(conn, cursor_icon);
+            }
+            
             // For now, just check if there are any platform commands (indicates interaction)
             !platform_output.events.is_empty()
         } else {
@@ -254,13 +266,13 @@ impl CompositorHandler for MainState {
 
     fn frame(
         &mut self,
-        _conn: &Connection,
+        conn: &Connection,
         qh: &QueueHandle<Self>,
         _surface: &wl_surface::WlSurface,
         _time: u32,
     ) {
         println!("[MAIN] Frame callback");
-        self.render(qh);
+        self.render(conn, qh);
     }
 
     fn surface_enter(
@@ -321,7 +333,7 @@ impl WindowHandler for MainState {
 
     fn configure(
         &mut self,
-        _conn: &Connection,
+        conn: &Connection,
         qh: &QueueHandle<Self>,
         _window: &Window,
         configure: WindowConfigure,
@@ -367,7 +379,7 @@ impl WindowHandler for MainState {
         }
 
         // Render the frame
-        self.render(qh);
+        self.render(conn, qh);
     }
 }
 
@@ -490,8 +502,24 @@ impl SeatHandler for MainState {
         if capability == Capability::Keyboard && self.seat_state.get_keyboard(qh, &seat, None).is_err() {
             println!("[MAIN] Failed to get keyboard");
         }
-        if capability == Capability::Pointer && self.seat_state.get_pointer(qh, &seat).is_err() {
-            println!("[MAIN] Failed to get pointer");
+        if capability == Capability::Pointer && self.themed_pointer.is_none() {
+            println!("[MAIN] Creating themed pointer");
+            let surface = self.window.wl_surface().clone();
+            match self.seat_state.get_pointer_with_theme(
+                qh,
+                &seat,
+                self.shm_state.wl_shm(),
+                surface,
+                ThemeSpec::default(),
+            ) {
+                Ok(themed_pointer) => {
+                    self.themed_pointer = Some(themed_pointer);
+                    println!("[MAIN] Themed pointer created successfully");
+                }
+                Err(e) => {
+                    println!("[MAIN] Failed to create themed pointer: {:?}", e);
+                }
+            }
         }
     }
 
@@ -507,8 +535,59 @@ impl SeatHandler for MainState {
     fn remove_seat(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_seat::WlSeat) {}
 }
 
+impl ShmHandler for MainState {
+    fn shm_state(&mut self) -> &mut Shm {
+        &mut self.shm_state
+    }
+}
+
+/// Convert EGUI cursor icon to Wayland cursor icon
+fn egui_to_wayland_cursor(cursor: egui::CursorIcon) -> WaylandCursorIcon {
+    use egui::CursorIcon::*;
+    use smithay_client_toolkit::seat::pointer::CursorIcon as WCI;
+    
+    match cursor {
+        Default => WCI::Default,
+        None => WCI::Default,
+        ContextMenu => WCI::ContextMenu,
+        Help => WCI::Help,
+        PointingHand => WCI::Pointer,
+        Progress => WCI::Progress,
+        Wait => WCI::Wait,
+        Cell => WCI::Cell,
+        Crosshair => WCI::Crosshair,
+        Text => WCI::Text,
+        VerticalText => WCI::VerticalText,
+        Alias => WCI::Alias,
+        Copy => WCI::Copy,
+        Move => WCI::Move,
+        NoDrop => WCI::NoDrop,
+        NotAllowed => WCI::NotAllowed,
+        Grab => WCI::Grab,
+        Grabbing => WCI::Grabbing,
+        AllScroll => WCI::AllScroll,
+        ResizeHorizontal => WCI::EwResize,
+        ResizeNeSw => WCI::NeswResize,
+        ResizeNwSe => WCI::NwseResize,
+        ResizeVertical => WCI::NsResize,
+        ResizeEast => WCI::EResize,
+        ResizeSouthEast => WCI::SeResize,
+        ResizeSouth => WCI::SResize,
+        ResizeSouthWest => WCI::SwResize,
+        ResizeWest => WCI::WResize,
+        ResizeNorthWest => WCI::NwResize,
+        ResizeNorth => WCI::NResize,
+        ResizeNorthEast => WCI::NeResize,
+        ResizeColumn => WCI::ColResize,
+        ResizeRow => WCI::RowResize,
+        ZoomIn => WCI::ZoomIn,
+        ZoomOut => WCI::ZoomOut,
+    }
+}
+
 delegate_compositor!(MainState);
 delegate_output!(MainState);
+delegate_shm!(MainState);
 
 delegate_seat!(MainState);
 delegate_keyboard!(MainState);
