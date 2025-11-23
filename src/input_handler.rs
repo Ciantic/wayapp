@@ -3,6 +3,13 @@ use smithay_client_toolkit::seat::keyboard::{KeyEvent, Keysym, Modifiers as Wayl
 use smithay_client_toolkit::seat::pointer::{PointerEvent, PointerEventKind};
 use std::time::Instant;
 
+#[derive(Debug, Clone)]
+pub enum ClipboardOperation {
+    Copy,
+    Cut,
+    PasteAsText(String),
+}
+
 /// Handles input events from Wayland and converts them to EGUI RawInput
 pub struct InputState {
     modifiers: Modifiers,
@@ -95,7 +102,7 @@ impl InputState {
         }
     }
 
-    pub fn handle_keyboard_event(&mut self, event: &KeyEvent, pressed: bool) {
+    pub fn handle_keyboard_event(&mut self, event: &KeyEvent, pressed: bool, clipboard_op: Option<ClipboardOperation>) {
         println!("[INPUT] Keyboard event - keysym: {:?}, raw_code: {}, pressed: {}, utf8: {:?}", 
                  event.keysym.raw(), event.raw_code, pressed, event.utf8);
         
@@ -106,6 +113,49 @@ impl InputState {
             self.pressed_keys.remove(&event.raw_code);
             false
         };
+
+        // Check for clipboard operations BEFORE general key handling
+        if pressed && !is_repeat {
+            // First check if we have an external clipboard operation (e.g., paste with loaded text)
+            if let Some(op) = clipboard_op {
+                match op {
+                    ClipboardOperation::Copy => {
+                        self.events.push(Event::Copy);
+                        println!("[INPUT] Added Copy event");
+                        return;  // Don't process as regular key
+                    }
+                    ClipboardOperation::Cut => {
+                        self.events.push(Event::Cut);
+                        println!("[INPUT] Added Cut event");
+                        return;  // Don't process as regular key
+                    }
+                    ClipboardOperation::PasteAsText(text) => {
+                        self.events.push(Event::Paste(text));
+                        println!("[INPUT] Added Paste event");
+                        return;  // Don't process as regular key
+                    }
+                }
+            }
+            
+            // Otherwise, check for copy/cut shortcuts
+            if let Some(op) = check_clipboard_shortcut(event.keysym, &self.modifiers) {
+                match op {
+                    ClipboardOperation::Copy => {
+                        self.events.push(Event::Copy);
+                        println!("[INPUT] Added Copy event");
+                        return;  // Don't process as regular key
+                    }
+                    ClipboardOperation::Cut => {
+                        self.events.push(Event::Cut);
+                        println!("[INPUT] Added Cut event");
+                        return;  // Don't process as regular key
+                    }
+                    ClipboardOperation::PasteAsText(_) => {
+                        // This shouldn't happen from check_clipboard_shortcut
+                    }
+                }
+            }
+        }
 
         if let Some(key) = keysym_to_egui_key(event.keysym) {
             println!("[INPUT] Mapped to EGUI key: {:?}, repeat: {}", key, is_repeat);
@@ -144,6 +194,11 @@ impl InputState {
         };
     }
 
+    /// Get current modifiers state
+    pub fn get_modifiers(&self) -> &Modifiers {
+        &self.modifiers
+    }
+
     pub fn take_raw_input(&mut self) -> RawInput {
         let events = std::mem::take(&mut self.events);
         println!("[INPUT] Taking raw input with {} events", events.len());
@@ -180,6 +235,22 @@ fn wayland_button_to_egui(button: u32) -> Option<PointerButton> {
         0x110 => Some(PointerButton::Primary),   // BTN_LEFT
         0x111 => Some(PointerButton::Secondary), // BTN_RIGHT
         0x112 => Some(PointerButton::Middle),    // BTN_MIDDLE
+        _ => None,
+    }
+}
+
+fn check_clipboard_shortcut(keysym: Keysym, modifiers: &Modifiers) -> Option<ClipboardOperation> {
+    if !modifiers.ctrl {
+        return None;
+    }
+
+    // XKB key constants
+    const XKB_KEY_c: u32 = 0x0063;
+    const XKB_KEY_x: u32 = 0x0078;
+
+    match keysym.raw() {
+        XKB_KEY_c => Some(ClipboardOperation::Copy),
+        XKB_KEY_x => Some(ClipboardOperation::Cut),
         _ => None,
     }
 }

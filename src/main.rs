@@ -6,10 +6,11 @@ mod input_handler;
 
 use crate::egui_renderer::EguiRenderer;
 use crate::egui_app::EguiApp;
-use crate::input_handler::InputState;
+use crate::input_handler::{InputState, ClipboardOperation};
 use raw_window_handle::{
     RawDisplayHandle, RawWindowHandle, WaylandDisplayHandle, WaylandWindowHandle,
 };
+use smithay_clipboard::Clipboard;
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
     delegate_compositor, delegate_output, delegate_registry, delegate_seat, delegate_xdg_shell,
@@ -93,11 +94,15 @@ fn main() {
     let (device, queue) = pollster::block_on(adapter.request_device(&Default::default()))
         .expect("Failed to request device");
 
+    // Initialize clipboard
+    let clipboard = unsafe { Clipboard::new(conn.display().id().as_ptr() as *mut _) };
+
     let mut main_state = MainState {
         registry_state: RegistryState::new(&globals),
         seat_state: SeatState::new(&globals, &qh),
         output_state: OutputState::new(&globals, &qh),
         shm_state,
+        clipboard,
 
         exit: false,
         width: 256,
@@ -135,6 +140,7 @@ struct MainState {
     seat_state: SeatState,
     output_state: OutputState,
     shm_state: Shm,
+    clipboard: Clipboard,
 
     exit: bool,
     width: u32,
@@ -213,6 +219,17 @@ impl MainState {
                 &texture_view,
                 screen_descriptor,
             );
+            
+            // Handle clipboard commands from egui
+            for command in &platform_output.commands {
+                match command {
+                    egui::OutputCommand::CopyText(text) => {
+                        self.clipboard.store(text.clone());
+                        println!("[MAIN] Copied text to clipboard: {:?}", text);
+                    }
+                    _ => {}
+                }
+            }
             
             // Handle cursor icon changes from EGUI
             if let Some(themed_pointer) = &self.themed_pointer {
@@ -438,7 +455,21 @@ impl KeyboardHandler for MainState {
         event: KeyEvent,
     ) {
         println!("[MAIN] Key pressed");
-        self.input_state.handle_keyboard_event(&event, true);
+        
+        // Check if this is a paste operation (Ctrl+V) and load from clipboard
+        let clipboard_op = if event.keysym.raw() == 0x0076 && self.input_state.get_modifiers().ctrl {  // XKB_KEY_v
+            if let Ok(text) = self.clipboard.load() {
+                println!("[MAIN] Loaded text from clipboard for paste");
+                Some(ClipboardOperation::PasteAsText(text))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        
+        self.input_state.handle_keyboard_event(&event, true, clipboard_op);
+        
         // Request a redraw after input
         println!("[MAIN] Requesting frame after key press");
         self.window.wl_surface().frame(&_qh, self.window.wl_surface().clone());
@@ -453,7 +484,7 @@ impl KeyboardHandler for MainState {
         _serial: u32,
         event: KeyEvent,
     ) {
-        self.input_state.handle_keyboard_event(&event, false);
+        self.input_state.handle_keyboard_event(&event, false, None);
     }
 
     fn update_modifiers(
@@ -477,7 +508,7 @@ impl KeyboardHandler for MainState {
         _serial: u32,
         event: KeyEvent,
     ) {
-        self.input_state.handle_keyboard_event(&event, true);
+        self.input_state.handle_keyboard_event(&event, true, None);
         // Request a redraw after input
         self.window.wl_surface().frame(&_qh, self.window.wl_surface().clone());
         self.window.wl_surface().commit();
