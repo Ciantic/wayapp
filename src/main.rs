@@ -91,7 +91,7 @@ fn main() {
     let (device, queue) = pollster::block_on(adapter.request_device(&Default::default()))
         .expect("Failed to request device");
 
-    let mut wgpu = Wgpu {
+    let mut main_state = MainState {
         registry_state: RegistryState::new(&globals),
         seat_state: SeatState::new(&globals, &qh),
         output_state: OutputState::new(&globals, &qh),
@@ -112,20 +112,20 @@ fn main() {
 
     // We don't draw immediately, the configure will notify us when to first draw.
     loop {
-        event_queue.blocking_dispatch(&mut wgpu).unwrap();
+        event_queue.blocking_dispatch(&mut main_state).unwrap();
 
-        if wgpu.exit {
+        if main_state.exit {
             println!("exiting example");
             break;
         }
     }
 
     // On exit we must destroy the surface before the window is destroyed.
-    drop(wgpu.surface);
-    drop(wgpu.window);
+    drop(main_state.surface);
+    drop(main_state.window);
 }
 
-struct Wgpu {
+struct MainState {
     registry_state: RegistryState,
     seat_state: SeatState,
     output_state: OutputState,
@@ -145,7 +145,7 @@ struct Wgpu {
     input_state: InputState,
 }
 
-impl Wgpu {
+impl MainState {
     fn render(&mut self, qh: &QueueHandle<Self>) {
         println!("[MAIN] Render called");
         
@@ -223,7 +223,7 @@ impl Wgpu {
     }
 }
 
-impl CompositorHandler for Wgpu {
+impl CompositorHandler for MainState {
     fn scale_factor_changed(
         &mut self,
         _conn: &Connection,
@@ -276,7 +276,7 @@ impl CompositorHandler for Wgpu {
     }
 }
 
-impl OutputHandler for Wgpu {
+impl OutputHandler for MainState {
     fn output_state(&mut self) -> &mut OutputState {
         &mut self.output_state
     }
@@ -306,7 +306,7 @@ impl OutputHandler for Wgpu {
     }
 }
 
-impl WindowHandler for Wgpu {
+impl WindowHandler for MainState {
     fn request_close(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &Window) {
         self.exit = true;
     }
@@ -360,7 +360,7 @@ impl WindowHandler for Wgpu {
     }
 }
 
-impl PointerHandler for Wgpu {
+impl PointerHandler for MainState {
     fn pointer_frame(
         &mut self,
         _conn: &Connection,
@@ -379,7 +379,7 @@ impl PointerHandler for Wgpu {
     }
 }
 
-impl KeyboardHandler for Wgpu {
+impl KeyboardHandler for MainState {
     fn enter(
         &mut self,
         _conn: &Connection,
@@ -461,7 +461,7 @@ impl KeyboardHandler for Wgpu {
     }
 }
 
-impl SeatHandler for Wgpu {
+impl SeatHandler for MainState {
     fn seat_state(&mut self) -> &mut SeatState {
         &mut self.seat_state
     }
@@ -496,19 +496,19 @@ impl SeatHandler for Wgpu {
     fn remove_seat(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_seat::WlSeat) {}
 }
 
-delegate_compositor!(Wgpu);
-delegate_output!(Wgpu);
+delegate_compositor!(MainState);
+delegate_output!(MainState);
 
-delegate_seat!(Wgpu);
-delegate_keyboard!(Wgpu);
-delegate_pointer!(Wgpu);
+delegate_seat!(MainState);
+delegate_keyboard!(MainState);
+delegate_pointer!(MainState);
 
-delegate_xdg_shell!(Wgpu);
-delegate_xdg_window!(Wgpu);
+delegate_xdg_shell!(MainState);
+delegate_xdg_window!(MainState);
 
-delegate_registry!(Wgpu);
+delegate_registry!(MainState);
 
-impl ProvidesRegistryState for Wgpu {
+impl ProvidesRegistryState for MainState {
     fn registry(&mut self) -> &mut RegistryState {
         &mut self.registry_state
     }
