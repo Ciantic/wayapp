@@ -144,7 +144,7 @@ struct Wgpu {
 }
 
 impl Wgpu {
-    fn render(&mut self) {
+    fn render(&mut self, qh: &QueueHandle<Self>) {
         println!("[MAIN] Render called");
         
         if self.egui_renderer.is_none() {
@@ -183,7 +183,7 @@ impl Wgpu {
         }
         
         // Render EGUI
-        if let Some(renderer) = &mut self.egui_renderer {
+        let needs_repaint = if let Some(renderer) = &mut self.egui_renderer {
             let raw_input = self.input_state.take_raw_input();
             
             renderer.begin_frame(raw_input);
@@ -194,18 +194,30 @@ impl Wgpu {
                 pixels_per_point: 1.0,
             };
             
-            let _platform_output = renderer.end_frame_and_draw(
+            let platform_output = renderer.end_frame_and_draw(
                 &self.device,
                 &self.queue,
                 &mut encoder,
                 &texture_view,
                 screen_descriptor,
             );
-        }
+            
+            // For now, just check if there are any platform commands (indicates interaction)
+            !platform_output.events.is_empty()
+        } else {
+            false
+        };
 
         // Submit the command in the queue to execute
         self.queue.submit(Some(encoder.finish()));
         surface_texture.present();
+        
+        // Only request next frame if EGUI needs repaint (animations, etc.)
+        if needs_repaint {
+            println!("[MAIN] EGUI has events, scheduling next frame");
+            self.window.wl_surface().frame(qh, self.window.wl_surface().clone());
+            self.window.wl_surface().commit();
+        }
     }
 }
 
@@ -238,10 +250,7 @@ impl CompositorHandler for Wgpu {
         _time: u32,
     ) {
         println!("[MAIN] Frame callback");
-        self.render();
-        // Request the next frame
-        self.window.wl_surface().frame(qh, self.window.wl_surface().clone());
-        self.window.wl_surface().commit();
+        self.render(qh);
     }
 
     fn surface_enter(
@@ -303,7 +312,7 @@ impl WindowHandler for Wgpu {
     fn configure(
         &mut self,
         _conn: &Connection,
-        _qh: &QueueHandle<Self>,
+        qh: &QueueHandle<Self>,
         _window: &Window,
         configure: WindowConfigure,
         _serial: u32,
@@ -345,7 +354,7 @@ impl WindowHandler for Wgpu {
         }
 
         // Render the frame
-        self.render();
+        self.render(qh);
     }
 }
 
