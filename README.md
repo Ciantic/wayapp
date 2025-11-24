@@ -1,3 +1,3 @@
-# Vibed example of EGUI + WGPU + Smithay Client Toolkit
+# EGUI + WGPU + Smithay Client Toolkit
 
-Code is mostly vibed
+No winit was used during creation of this thing. Code is mostly vibed, so beware, I haven't read all of it.
