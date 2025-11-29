@@ -1,8 +1,6 @@
 // Original here: https://github.com/Smithay/client-toolkit/blob/master/examples/wgpu.rs
 
-mod egui_renderer;
-mod egui_app;
-mod input_handler;
+use egui_smithay::*;
 
 use crate::egui_renderer::EguiRenderer;
 use crate::egui_app::EguiApp;
@@ -13,8 +11,8 @@ use raw_window_handle::{
 use smithay_clipboard::Clipboard;
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
-    delegate_compositor, delegate_output, delegate_registry, delegate_seat, delegate_xdg_shell,
-    delegate_xdg_window, delegate_keyboard, delegate_pointer, delegate_shm,
+    delegate_compositor, delegate_output, delegate_registry, delegate_seat, delegate_layer,
+    delegate_keyboard, delegate_pointer, delegate_shm,
     output::{OutputHandler, OutputState},
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
@@ -24,9 +22,9 @@ use smithay_client_toolkit::{
         pointer::{PointerHandler, PointerEvent, ThemedPointer, ThemeSpec, CursorIcon as WaylandCursorIcon},
     },
     shell::{
-        xdg::{
-            window::{Window, WindowConfigure, WindowDecorations, WindowHandler},
-            XdgShell,
+        wlr_layer::{
+            Anchor, KeyboardInteractivity, Layer, LayerShell, LayerShellHandler,
+            LayerSurface, LayerSurfaceConfigure,
         },
         WaylandSurface,
     },
@@ -41,6 +39,33 @@ use wayland_client::{
 };
 use log::trace;
 
+// Small helper used to fetch outputs early on (so we can pass one to the
+// layer-shell when creating the layer surface).
+struct Probe {
+    registry_state: RegistryState,
+    output_state: OutputState,
+}
+
+impl OutputHandler for Probe {
+    fn output_state(&mut self) -> &mut OutputState {
+        &mut self.output_state
+    }
+
+    fn new_output(&mut self, _: &Connection, _: &QueueHandle<Self>, _output: wl_output::WlOutput) {}
+    fn update_output(&mut self, _: &Connection, _: &QueueHandle<Self>, _output: wl_output::WlOutput) {}
+    fn output_destroyed(&mut self, _: &Connection, _: &QueueHandle<Self>, _output: wl_output::WlOutput) {}
+}
+
+delegate_output!(Probe);
+delegate_registry!(Probe);
+
+impl ProvidesRegistryState for Probe {
+    fn registry(&mut self) -> &mut RegistryState {
+        &mut self.registry_state
+    }
+    registry_handlers![OutputState];
+}
+
 fn main() {
     env_logger::init();
 
@@ -48,20 +73,38 @@ fn main() {
     let (globals, mut event_queue) = registry_queue_init(&conn).unwrap();
     let qh = event_queue.handle();
 
-    // Initialize xdg_shell handlers so we can select the correct adapter
+    // Initialize layer shell handlers
     let compositor_state =
         CompositorState::bind(&globals, &qh).expect("wl_compositor not available");
-    let xdg_shell_state = XdgShell::bind(&globals, &qh).expect("xdg shell not available");
+    let layer_shell_state = LayerShell::bind(&globals, &qh).expect("layer shell not available");
     let shm_state = Shm::bind(&globals, &qh).expect("wl_shm not available");
+    // Probe outputs on a separate queue so we don't mix dispatch state types.
+    let (probe_globals, mut probe_event_queue) = registry_queue_init(&conn).unwrap();
+    let probe_qh = probe_event_queue.handle();
+
+    let mut probe = Probe {
+        registry_state: RegistryState::new(&probe_globals),
+        output_state: OutputState::new(&probe_globals, &probe_qh),
+    };
+    // Ensure output_state is populated
+    probe_event_queue.roundtrip(&mut probe).unwrap();
+
+    // First monitor
+    let chosen_output = probe.output_state.outputs().nth(0);
 
     let surface = compositor_state.create_surface(&qh);
-    // Create the window for adapter selection
-    let window = xdg_shell_state.create_window(surface, WindowDecorations::ServerDefault, &qh);
-    window.set_title("wgpu wayland window");
-    // GitHub does not let projects use the `org.github` domain but the `io.github` domain is fine.
-    window.set_app_id("io.github.smithay.client-toolkit.WgpuExample");
-    window.set_min_size(Some((256, 256)));
-    window.commit();
+    // Create the layer surface for adapter selection, bind to the first output
+    let layer_surface = layer_shell_state.create_layer_surface(
+        &qh,
+        surface,
+        Layer::Top,
+        Some("clock-for-smithay"),
+        chosen_output.as_ref(),
+    );
+    layer_surface.set_anchor(Anchor::BOTTOM);
+    layer_surface.set_keyboard_interactivity(KeyboardInteractivity::OnDemand);
+    layer_surface.set_size(256, 256);
+    layer_surface.commit();
 
     // Initialize wgpu
     let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
@@ -74,7 +117,7 @@ fn main() {
         NonNull::new(conn.backend().display_ptr() as *mut _).unwrap(),
     ));
     let raw_window_handle = RawWindowHandle::Wayland(WaylandWindowHandle::new(
-        NonNull::new(window.wl_surface().id().as_ptr() as *mut _).unwrap(),
+        NonNull::new(layer_surface.wl_surface().id().as_ptr() as *mut _).unwrap(),
     ));
 
     let surface = unsafe {
@@ -114,7 +157,7 @@ fn main() {
         width: 256,
         height: 256,
         scale_factor: 1,
-        window,
+        layer_surface,
         device,
         surface,
         adapter,
@@ -136,9 +179,9 @@ fn main() {
         }
     }
 
-    // On exit we must destroy the surface before the window is destroyed.
+    // On exit we must destroy the surface before the layer surface is destroyed.
     drop(main_state.surface);
-    drop(main_state.window);
+    drop(main_state.layer_surface);
 }
 
 struct MainState {
@@ -151,7 +194,7 @@ struct MainState {
     width: u32,
     height: u32,
     scale_factor: i32,
-    window: Window,
+    layer_surface: LayerSurface,
 
     adapter: wgpu::Adapter,
     device: wgpu::Device,
@@ -249,8 +292,8 @@ impl MainState {
         // Only request next frame if EGUI needs repaint (animations, etc.)
         if needs_repaint {
             trace!("[MAIN] EGUI has events, scheduling next frame");
-            self.window.wl_surface().frame(qh, self.window.wl_surface().clone());
-            self.window.wl_surface().commit();
+            self.layer_surface.wl_surface().frame(qh, self.layer_surface.wl_surface().clone());
+            self.layer_surface.wl_surface().commit();
         }
     }
 }
@@ -266,8 +309,8 @@ impl CompositorHandler for MainState {
         trace!("[MAIN] Scale factor changed to {}", new_factor);
         self.scale_factor = new_factor;
         // Request a redraw with the new scale factor
-        self.window.wl_surface().frame(qh, self.window.wl_surface().clone());
-        self.window.wl_surface().commit();
+        self.layer_surface.wl_surface().frame(qh, self.layer_surface.wl_surface().clone());
+        self.layer_surface.wl_surface().commit();
     }
 
     fn transform_changed(
@@ -342,8 +385,8 @@ impl OutputHandler for MainState {
     }
 }
 
-impl WindowHandler for MainState {
-    fn request_close(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &Window) {
+impl LayerShellHandler for MainState {
+    fn closed(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _layer: &LayerSurface) {
         self.exit = true;
     }
 
@@ -351,16 +394,16 @@ impl WindowHandler for MainState {
         &mut self,
         conn: &Connection,
         qh: &QueueHandle<Self>,
-        _window: &Window,
-        configure: WindowConfigure,
+        _layer: &LayerSurface,
+        configure: LayerSurfaceConfigure,
         _serial: u32,
     ) {
         trace!("[MAIN] Configure called");
         let (new_width, new_height) = configure.new_size;
-        self.width = new_width.map_or(256, |v| v.get());
-        self.height = new_height.map_or(256, |v| v.get());
+        self.width = new_width.max(1);
+        self.height = new_height.max(1);
         self.input_state.set_screen_size(self.width, self.height);
-        trace!("[MAIN] Window size: {}x{}", self.width, self.height);
+        trace!("[MAIN] Layer surface size: {}x{}", self.width, self.height);
 
         let adapter = &self.adapter;
         let surface = &self.surface;
@@ -382,7 +425,7 @@ impl WindowHandler for MainState {
         surface.configure(&self.device, &surface_config);
         
         // Tell Wayland we're providing a buffer at scale_factor resolution
-        self.window.wl_surface().set_buffer_scale(self.scale_factor);
+        self.layer_surface.wl_surface().set_buffer_scale(self.scale_factor);
 
         // Initialize EGUI renderer if not already done
         if self.egui_renderer.is_none() {
@@ -413,8 +456,8 @@ impl PointerHandler for MainState {
         }
         // Request a redraw after input
         trace!("[MAIN] Requesting frame after pointer input");
-        self.window.wl_surface().frame(&_qh, self.window.wl_surface().clone());
-        self.window.wl_surface().commit();
+        self.layer_surface.wl_surface().frame(&_qh, self.layer_surface.wl_surface().clone());
+        self.layer_surface.wl_surface().commit();
     }
 }
 
@@ -460,8 +503,8 @@ impl KeyboardHandler for MainState {
         
         // Request a redraw after input
         trace!("[MAIN] Requesting frame after key press");
-        self.window.wl_surface().frame(&_qh, self.window.wl_surface().clone());
-        self.window.wl_surface().commit();
+        self.layer_surface.wl_surface().frame(&_qh, self.layer_surface.wl_surface().clone());
+        self.layer_surface.wl_surface().commit();
     }
 
     fn release_key(
@@ -498,8 +541,8 @@ impl KeyboardHandler for MainState {
     ) {
         self.input_state.handle_keyboard_event(&event, true, true);
         // Request a redraw after input
-        self.window.wl_surface().frame(&_qh, self.window.wl_surface().clone());
-        self.window.wl_surface().commit();
+        self.layer_surface.wl_surface().frame(&_qh, self.layer_surface.wl_surface().clone());
+        self.layer_surface.wl_surface().commit();
     }
 }
 
@@ -523,7 +566,7 @@ impl SeatHandler for MainState {
         }
         if capability == Capability::Pointer && self.themed_pointer.is_none() {
             trace!("[MAIN] Creating themed pointer");
-            let surface = self.window.wl_surface().clone();
+            let surface = self.layer_surface.wl_surface().clone();
             match self.seat_state.get_pointer_with_theme(
                 qh,
                 &seat,
@@ -612,8 +655,7 @@ delegate_seat!(MainState);
 delegate_keyboard!(MainState);
 delegate_pointer!(MainState);
 
-delegate_xdg_shell!(MainState);
-delegate_xdg_window!(MainState);
+delegate_layer!(MainState);
 
 delegate_registry!(MainState);
 
