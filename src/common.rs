@@ -1,7 +1,7 @@
 use std::{num::NonZero, rc::{Rc, Weak}};
 
 use log::trace;
-use smithay_client_toolkit::{compositor::{CompositorHandler, CompositorState}, delegate_compositor, delegate_keyboard, delegate_layer, delegate_output, delegate_pointer, delegate_registry, delegate_seat, delegate_shm, delegate_xdg_popup, delegate_xdg_shell, delegate_xdg_window, output::{OutputHandler, OutputState}, registry::{ProvidesRegistryState, RegistryState}, registry_handlers, seat::{Capability, SeatHandler, SeatState, keyboard::{KeyEvent, KeyboardHandler, Keysym}, pointer::{PointerEvent, PointerHandler, ThemedPointer}}, shell::{WaylandSurface, wlr_layer::{Anchor, KeyboardInteractivity, Layer, LayerShell, LayerShellHandler, LayerSurface, LayerSurfaceConfigure}, xdg::{XdgShell, popup::{Popup, PopupConfigure, PopupHandler}, window::{Window, WindowConfigure, WindowDecorations, WindowHandler}}}, shm::{Shm, ShmHandler, slot::{Buffer, SlotPool}}};
+use smithay_client_toolkit::{compositor::{CompositorHandler, CompositorState}, delegate_compositor, delegate_keyboard, delegate_layer, delegate_output, delegate_pointer, delegate_registry, delegate_seat, delegate_shm, delegate_subcompositor, delegate_xdg_popup, delegate_xdg_shell, delegate_xdg_window, output::{OutputHandler, OutputState}, registry::{ProvidesRegistryState, RegistryState}, registry_handlers, seat::{Capability, SeatHandler, SeatState, keyboard::{KeyEvent, KeyboardHandler, Keysym}, pointer::{PointerEvent, PointerHandler, ThemedPointer}}, shell::{WaylandSurface, wlr_layer::{Anchor, KeyboardInteractivity, Layer, LayerShell, LayerShellHandler, LayerSurface, LayerSurfaceConfigure}, xdg::{XdgShell, popup::{Popup, PopupConfigure, PopupHandler}, window::{Window, WindowConfigure, WindowDecorations, WindowHandler}}}, shm::{Shm, ShmHandler, slot::{Buffer, SlotPool}}};
 use wayland_client::{Connection, Proxy, QueueHandle, protocol::{wl_keyboard::WlKeyboard, wl_output, wl_pointer::WlPointer, wl_seat, wl_shm, wl_surface::WlSurface}};
 
 use crate::InputState;
@@ -64,7 +64,7 @@ impl Application {
         None
     }
 
-    fn single_color_example_buffer_configure(&mut self, surface: &WlSurface, qh: &QueueHandle<Self>, new_width: u32, new_height: u32, color: (u8, u8, u8)) {
+    pub fn single_color_example_buffer_configure(&mut self, surface: &WlSurface, qh: &QueueHandle<Self>, new_width: u32, new_height: u32, color: (u8, u8, u8)) {
 
         trace!("[COMMON] Create Brown Buffer");
 
@@ -125,17 +125,17 @@ impl CompositorHandler for Application {
         &mut self,
         conn: &Connection,
         qh: &QueueHandle<Self>,
-        _surface: &WlSurface,
+        surface: &WlSurface,
         _time: u32,
     ) {
-        trace!("[MAIN] Frame callback");
-        if let Some(layer) = self.find_layer_by_surface(_surface).and_then(|weak| weak.upgrade()) {
+        trace!("[MAIN] Frame callback {}", surface.id().as_ptr() as usize);
+        if let Some(layer) = self.find_layer_by_surface(surface).and_then(|weak| weak.upgrade()) {
             trace!("[MAIN] Found layer surface for frame");
             // layer.wl_surface().frame(qh, layer.wl_surface().clone());
             // layer.wl_surface().commit();
         }
 
-        if let Some(window) = self.find_window_by_surface(_surface).and_then(|weak| weak.upgrade()) {
+        if let Some(window) = self.find_window_by_surface(surface).and_then(|weak| weak.upgrade()) {
             trace!("[MAIN] Found xdg window for frame");
             // window.wl_surface().frame(qh, window.wl_surface().clone());
             // window.wl_surface().commit();
@@ -428,6 +428,7 @@ impl ProvidesRegistryState for Application {
 }
 
 delegate_compositor!(Application);
+delegate_subcompositor!(Application);
 delegate_output!(Application);
 delegate_shm!(Application);
 

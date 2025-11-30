@@ -3,7 +3,7 @@ use log::trace;
 use egui_smithay::*;
 
 use smithay_client_toolkit::{
-	compositor::CompositorState, output::OutputState, registry::{ProvidesRegistryState, RegistryState}, seat::SeatState, shell::{WaylandSurface, wlr_layer::{Anchor, Layer, LayerShell}, xdg::{XdgPositioner, XdgShell, XdgSurface, popup::Popup, window::WindowDecorations}}, shm::Shm
+	compositor::CompositorState, output::OutputState, registry::{ProvidesRegistryState, RegistryState}, seat::SeatState, shell::{WaylandSurface, wlr_layer::{Anchor, Layer, LayerShell}, xdg::{XdgPositioner, XdgShell, XdgSurface, popup::Popup, window::WindowDecorations}}, shm::Shm, subcompositor::SubcompositorState
 };
 use smithay_clipboard::Clipboard;
 use wayland_client::{Connection, Proxy, globals::registry_queue_init};
@@ -18,6 +18,7 @@ fn main() {
 
 	// Bind required globals
 	let compositor_state = CompositorState::bind(&globals, &qh).expect("wl_compositor not available");
+	let subscompositor_state = SubcompositorState::bind(compositor_state.wl_compositor().clone(), &globals, &qh).expect("wl_subcompositor not available");
 	let xdg_shell = XdgShell::bind(&globals, &qh).expect("xdg shell not available");
 	let shm_state = Shm::bind(&globals, &qh).expect("wl_shm not available");
     let layer_shell = LayerShell::bind(&globals, &qh).expect("layer shell not available");
@@ -79,6 +80,12 @@ fn main() {
 	child_window.set_app_id("io.github.smithay.client-toolkit.EguiExample.Child");
 	child_window.set_min_size(Some((128, 128)));
 	child_window.commit();
+
+	// Example subsurface --------------------------
+	let (subsurface, sub_wlsurface) = subscompositor_state.create_subsurface(example_win_surface.clone(), &qh);
+	subsurface.set_position(20, 20);
+	app.single_color_example_buffer_configure(&sub_wlsurface, &qh, 128, 128, (0, 0, 255));
+	trace!("Created subsurface: {:?}", sub_wlsurface.id().as_ptr() as usize);
 
 	// Example popup, attached to example window --------------------------
 	let xdg_surface = example_window.xdg_surface();
