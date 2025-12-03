@@ -1,8 +1,9 @@
 use std::{num::NonZero, rc::{Rc, Weak}};
 
 use log::trace;
-use smithay_client_toolkit::{compositor::{CompositorHandler, CompositorState}, delegate_compositor, delegate_keyboard, delegate_layer, delegate_output, delegate_pointer, delegate_registry, delegate_seat, delegate_shm, delegate_subcompositor, delegate_xdg_popup, delegate_xdg_shell, delegate_xdg_window, output::{OutputHandler, OutputState}, registry::{ProvidesRegistryState, RegistryState}, registry_handlers, seat::{Capability, SeatHandler, SeatState, keyboard::{KeyEvent, KeyboardHandler, Keysym}, pointer::{PointerEvent, PointerHandler, ThemedPointer}}, shell::{WaylandSurface, wlr_layer::{Anchor, KeyboardInteractivity, Layer, LayerShell, LayerShellHandler, LayerSurface, LayerSurfaceConfigure}, xdg::{XdgShell, popup::{Popup, PopupConfigure, PopupHandler}, window::{Window, WindowConfigure, WindowDecorations, WindowHandler}}}, shm::{Shm, ShmHandler, slot::{Buffer, SlotPool}}};
+use smithay_client_toolkit::{compositor::{CompositorHandler, CompositorState}, delegate_compositor, delegate_keyboard, delegate_layer, delegate_output, delegate_pointer, delegate_registry, delegate_seat, delegate_shm, delegate_subcompositor, delegate_xdg_popup, delegate_xdg_shell, delegate_xdg_window, output::{OutputHandler, OutputState}, registry::{ProvidesRegistryState, RegistryState}, registry_handlers, seat::{Capability, SeatHandler, SeatState, keyboard::{KeyEvent, KeyboardHandler, Keysym}, pointer::{PointerDataExt, PointerEvent, PointerEventKind, PointerHandler, ThemeSpec, ThemedPointer, cursor_shape::CursorShapeManager}}, shell::{WaylandSurface, wlr_layer::{Anchor, KeyboardInteractivity, Layer, LayerShell, LayerShellHandler, LayerSurface, LayerSurfaceConfigure}, xdg::{XdgShell, popup::{Popup, PopupConfigure, PopupHandler}, window::{Window, WindowConfigure, WindowDecorations, WindowHandler}}}, shm::{Shm, ShmHandler, slot::{Buffer, SlotPool}}};
 use wayland_client::{Connection, Proxy, QueueHandle, protocol::{wl_keyboard::WlKeyboard, wl_output, wl_pointer::WlPointer, wl_seat, wl_shm, wl_surface::WlSurface}};
+use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::Shape;
 
 use crate::InputState;
 
@@ -21,13 +22,16 @@ pub struct Application {
     pub windows: Vec<Weak<Window>>,
     pub layer_surfaces: Vec<Weak<LayerSurface>>,
     pub input_state: InputState,
+    pub cursor_shape_manager: CursorShapeManager,
     // Pool used to create shm buffers for simple software presentation in examples
     pub pool: Option<SlotPool>,
 }
 
 impl Application {
     /// Create a new Application container from the provided globals state pieces.
-    pub fn new(registry_state: RegistryState, seat_state: SeatState, output_state: OutputState, shm_state: Shm, input_state: InputState) -> Self {
+    pub fn new(registry_state: RegistryState, seat_state: SeatState, output_state: OutputState, shm_state: Shm, input_state: InputState, cursor_shape_manager: CursorShapeManager
+
+    ) -> Self {
         Self {
             registry_state,
             seat_state,
@@ -37,6 +41,7 @@ impl Application {
             layer_surfaces: Vec::new(),
             input_state,
             pool: None,
+            cursor_shape_manager,
         }
     }
 
@@ -263,14 +268,29 @@ impl PointerHandler for Application {
     fn pointer_frame(
         &mut self,
         _conn: &Connection,
-        _qh: &QueueHandle<Self>,
-        _pointer: &WlPointer,
+        qh: &QueueHandle<Self>,
+        pointer: &WlPointer,
         events: &[PointerEvent],
     ) {
         trace!("[MAIN] Pointer frame with {} events", events.len());
+
+        
+        // Get serial from the last event that has one
+        if let Some(serial) = events.iter().rev().find_map(|event| match &event.kind {
+            PointerEventKind::Enter { serial } => Some(*serial),
+            PointerEventKind::Leave { serial } => Some(*serial),
+            PointerEventKind::Press { serial, .. } => Some(*serial),
+            _ => None,
+        }) {
+            let device =self.cursor_shape_manager.get_shape_device(pointer, qh);
+            device.set_shape(serial, Shape::Move);
+            trace!("[MAIN] Set cursor shape to Move with serial {}", serial);
+        }
+
         for event in events {
             self.input_state.handle_pointer_event(event);
         }
+        
         // Request a redraw after input
         trace!("[MAIN] Requesting frame after pointer input");
         // self.layer_surface.wl_surface().frame(&_qh, self.layer_surface.wl_surface().clone());
@@ -378,28 +398,23 @@ impl SeatHandler for Application {
         capability: Capability,
     ) {
         trace!("[MAIN] New seat capability: {:?}", capability);
-        if capability == Capability::Keyboard && self.seat_state.get_keyboard(qh, &seat, None).is_err() {
-            trace!("[MAIN] Failed to get keyboard");
+        if capability == Capability::Keyboard {
+            trace!("[MAIN] Creating wl_keyboard");
+            // match self.seat_state.get_keyboard(qh, &seat) {
+            //     Ok(wl_keyboard) => {
+            //         self.wl_keyboard = Some(wl_keyboard);
+            //         trace!("[MAIN] wl_keyboard created successfully");
+            //     }
+            //     Err(e) => {
+            //         trace!("[MAIN] Failed to create wl_keyboard: {:?}", e);
+            //     }
+            // }
         }
-        // if capability == Capability::Pointer && self.themed_pointer.is_none() {
-        //     trace!("[MAIN] Creating themed pointer");
-        //     let surface = self.layer_surface.wl_surface().clone();
-        //     match self.seat_state.get_pointer_with_theme(
-        //         qh,
-        //         &seat,
-        //         self.shm_state.wl_shm(),
-        //         surface,
-        //         ThemeSpec::default(),
-        //     ) {
-        //         Ok(themed_pointer) => {
-        //             self.themed_pointer = Some(themed_pointer);
-        //             trace!("[MAIN] Themed pointer created successfully");
-        //         }
-        //         Err(e) => {
-        //             trace!("[MAIN] Failed to create themed pointer: {:?}", e);
-        //         }
-        //     }
-        // }
+        if capability == Capability::Pointer {
+            self.seat_state.get_pointer(&qh, &seat);
+            trace!("[MAIN] Creating themed pointer");
+            
+        }
     }
 
     fn remove_capability(

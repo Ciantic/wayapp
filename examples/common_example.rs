@@ -3,11 +3,11 @@ use log::trace;
 use egui_smithay::*;
 
 use smithay_client_toolkit::{
-	compositor::CompositorState, output::OutputState, registry::{ProvidesRegistryState, RegistryState}, seat::SeatState, shell::{WaylandSurface, wlr_layer::{Anchor, Layer, LayerShell}, xdg::{XdgPositioner, XdgShell, XdgSurface, popup::Popup, window::WindowDecorations}}, shm::Shm, subcompositor::SubcompositorState
+	compositor::CompositorState, output::OutputState, registry::{ProvidesRegistryState, RegistryState}, seat::{SeatState, pointer::cursor_shape::CursorShapeManager}, shell::{WaylandSurface, wlr_layer::{Anchor, Layer, LayerShell}, xdg::{XdgPositioner, XdgShell, XdgSurface, popup::Popup, window::WindowDecorations}}, shm::Shm, subcompositor::SubcompositorState
 };
 use smithay_clipboard::Clipboard;
 use wayland_client::{Connection, Proxy, globals::registry_queue_init};
-use wayland_protocols::xdg::{self, shell::client::{xdg_popup::XdgPopup, xdg_positioner::ConstraintAdjustment}};
+use wayland_protocols::{wp::pointer_warp::v1::client::wp_pointer_warp_v1::WpPointerWarpV1, xdg::{self, shell::client::{xdg_popup::XdgPopup, xdg_positioner::ConstraintAdjustment}}};
 
 fn main() {
 	env_logger::init();
@@ -22,7 +22,8 @@ fn main() {
 	let xdg_shell = XdgShell::bind(&globals, &qh).expect("xdg shell not available");
 	let shm_state = Shm::bind(&globals, &qh).expect("wl_shm not available");
     let layer_shell = LayerShell::bind(&globals, &qh).expect("layer shell not available");
-	
+	let cursor_shape_manager = CursorShapeManager::bind(&globals, &qh).expect("cursor shape manager not available");
+
 
 	// Clipboard (needed for InputState)
 	let clipboard = unsafe { Clipboard::new(conn.display().id().as_ptr() as *mut _) };
@@ -34,6 +35,7 @@ fn main() {
 		OutputState::new(&globals, &qh),
 		shm_state,
 		InputState::new(clipboard),
+		cursor_shape_manager,
 	);
 
 	// Experiment to share the same surface between multiple layer surfaces
