@@ -1,66 +1,47 @@
 use std::rc::Weak;
 
 use log::trace;
-use smithay_client_toolkit::{delegate_keyboard, delegate_pointer, seat::{Capability, SeatHandler, SeatState, keyboard::KeyboardHandler, pointer::{PointerHandler, ThemeSpec, ThemedPointer}}, shell::{WaylandSurface, wlr_layer::{LayerShellHandler, LayerSurface}, xdg::{popup::{Popup, PopupConfigure, PopupHandler}, window::{Window, WindowHandler}}}, shm::{Shm, slot::Buffer}};
+use smithay_client_toolkit::{delegate_keyboard, delegate_pointer, seat::{Capability, SeatHandler, SeatState, keyboard::{KeyEvent, KeyboardHandler, Modifiers}, pointer::{PointerEvent, PointerHandler, ThemeSpec, ThemedPointer}}, shell::{WaylandSurface, wlr_layer::{LayerShellHandler, LayerSurface}, xdg::{popup::{ConfigureKind, Popup, PopupConfigure, PopupHandler}, window::{Window, WindowConfigure, WindowHandler}}}, shm::{Shm, slot::Buffer}};
 use wayland_client::{Connection, QueueHandle, protocol::{wl_keyboard::WlKeyboard, wl_surface::WlSurface}};
 use wayland_protocols::wp::viewporter::client::wp_viewport::WpViewport;
 
-pub struct CustomPlatformHandler<K: KeyboardHandler, P: PointerHandler> {
-    pub keyboard_handler: Option<K>,
-    pub pointer_handler: Option<P>,
-    shm_state: Shm,
-    themed_pointer: Option<ThemedPointer>,
-    wl_keyboard: Option<WlKeyboard>,
-    wl_surface: Weak<WlSurface>,
+
+trait CustomKeyboardHandler {
+    fn enter(&mut self) {
+
+    }
+
+    fn leave(&mut self) {
+
+    }
+
+    fn press_key(&mut self, event: KeyEvent) {
+
+    }
+
+    fn release_key(&mut self, event: KeyEvent) {
+
+    }
+
+    fn update_modifiers(&mut self, modifiers: Modifiers) {
+
+    }
+
+    fn repeat_key(&mut self, event: KeyEvent) {
+    }
 }
 
+trait CustomPointerHandler {
+    fn pointer_frame(&mut self, events: &[PointerEvent]) {
 
+    }
+}
 
-pub struct CustomWindowContainer<K: KeyboardHandler, P: PointerHandler> {
+pub struct CustomWindowContainer {
     pub xdg_window: Window,
     // pub surface: WlSurface,
     pub buffer: Option<Buffer>,
     pub wp_viewporter: Option<WpViewport>,
-    pub platform_handler: CustomPlatformHandler<K, P>,
-}
-
-impl<K: KeyboardHandler, P: PointerHandler> WindowHandler for CustomWindowContainer<K, P> {
-    fn request_close(&mut self, conn: &Connection, qh: &QueueHandle<Self>, window: &Window) {
-    }
-
-    fn configure(
-        &mut self,
-        conn: &Connection,
-        qh: &QueueHandle<Self>,
-        window: &Window,
-        configure: smithay_client_toolkit::shell::xdg::window::WindowConfigure,
-        serial: u32,
-    ) {
-    }
-}
-
-pub struct CustomPopupContainer {
-    pub popup: Popup,
-    // pub surface: WlSurface,
-    pub buffer: Option<Buffer>,
-    pub wp_viewporter: Option<WpViewport>,
-}
-
-impl PopupHandler for CustomPopupContainer {
-    fn configure(
-        &mut self,
-        conn: &Connection,
-        qh: &QueueHandle<Self>,
-        popup: &Popup,
-        config: PopupConfigure,
-    ) {
-        
-    }
-
-    
-    fn done(&mut self, conn: &wayland_client::Connection, qh: &wayland_client::QueueHandle<Self>, popup: &Popup) {
-        todo!()
-    }
 }
 
 pub struct CustomLayerSurfaceContainer {
@@ -70,19 +51,47 @@ pub struct CustomLayerSurfaceContainer {
     pub wp_viewporter: Option<WpViewport>,
 }
 
-impl LayerShellHandler for CustomLayerSurfaceContainer {
-    fn closed(&mut self, conn: &wayland_client::Connection, qh: &wayland_client::QueueHandle<Self>, layer: &LayerSurface) {
-        
-    }
+pub struct CustomPopupContainer {
+    pub popup: Popup,
+    // pub surface: WlSurface,
+    pub buffer: Option<Buffer>,
+    pub wp_viewporter: Option<WpViewport>,
+}
 
+impl CustomWindowContainer {
     fn configure(
         &mut self,
-        conn: &wayland_client::Connection,
-        qh: &wayland_client::QueueHandle<Self>,
-        layer: &LayerSurface,
-        configure: smithay_client_toolkit::shell::wlr_layer::LayerSurfaceConfigure,
-        serial: u32,
+        configure: WindowConfigure,
     ) {
+    }
+
+    fn request_close(&mut self) {
+    }
+}
+
+
+impl CustomPopupContainer {
+    fn configure(
+        &mut self,
+        config: PopupConfigure,
+    ) {
+        
+    }
+    
+    fn done(&mut self) {
+    }
+}
+
+
+impl CustomLayerSurfaceContainer {
+    fn configure(
+        &mut self,
+        width: i32,
+        height: i32,
+    ) {
+        
+    }
+    fn closed(&mut self) {
         
     }
 }
