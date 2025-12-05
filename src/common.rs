@@ -1,24 +1,26 @@
 use std::{collections::HashMap, num::NonZero, rc::{Rc, Weak}};
 
 use log::trace;
-use smithay_client_toolkit::{compositor::{CompositorHandler, CompositorState}, delegate_compositor, delegate_keyboard, delegate_layer, delegate_output, delegate_pointer, delegate_registry, delegate_seat, delegate_shm, delegate_subcompositor, delegate_xdg_popup, delegate_xdg_shell, delegate_xdg_window, output::{OutputHandler, OutputState}, registry::{ProvidesRegistryState, RegistryState}, registry_handlers, seat::{Capability, SeatHandler, SeatState, keyboard::{KeyEvent, KeyboardHandler, Keysym}, pointer::{PointerDataExt, PointerEvent, PointerEventKind, PointerHandler, ThemeSpec, ThemedPointer, cursor_shape::CursorShapeManager}}, shell::{WaylandSurface, wlr_layer::{Anchor, KeyboardInteractivity, Layer, LayerShell, LayerShellHandler, LayerSurface, LayerSurfaceConfigure}, xdg::{XdgShell, popup::{Popup, PopupConfigure, PopupHandler}, window::{Window, WindowConfigure, WindowDecorations, WindowHandler}}}, shm::{Shm, ShmHandler, slot::{Buffer, SlotPool}}};
-use wayland_client::{Connection, Proxy, QueueHandle, protocol::{wl_keyboard::WlKeyboard, wl_output, wl_pointer::WlPointer, wl_seat, wl_shm, wl_surface::WlSurface}};
+use smithay_client_toolkit::{compositor::{CompositorHandler, CompositorState}, delegate_compositor, delegate_keyboard, delegate_layer, delegate_output, delegate_pointer, delegate_registry, delegate_seat, delegate_shm, delegate_subcompositor, delegate_xdg_popup, delegate_xdg_shell, delegate_xdg_window, output::{OutputHandler, OutputState}, registry::{ProvidesRegistryState, RegistryState}, registry_handlers, seat::{Capability, SeatHandler, SeatState, keyboard::{KeyEvent, KeyboardHandler, Keysym}, pointer::{PointerEvent, PointerEventKind, PointerHandler, cursor_shape::CursorShapeManager}}, shell::{WaylandSurface, wlr_layer::{Anchor, KeyboardInteractivity, LayerShell, LayerShellHandler, LayerSurface, LayerSurfaceConfigure}, xdg::{XdgShell, popup::{Popup, PopupConfigure, PopupHandler}, window::{Window, WindowConfigure, WindowHandler}}}, shm::{Shm, ShmHandler, slot::SlotPool}, subcompositor::SubcompositorState};
+use smithay_clipboard::Clipboard;
+use wayland_client::{Connection, EventQueue, Proxy, QueueHandle, globals::registry_queue_init, protocol::{wl_keyboard::WlKeyboard, wl_output, wl_pointer::WlPointer, wl_seat, wl_shm, wl_surface::WlSurface}};
 use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::{Shape, WpCursorShapeDeviceV1};
 
 use crate::InputState;
 
-pub struct LayerSurfaceOptions {
-    anchor: Anchor,
-    keyboard_interactivity: KeyboardInteractivity,
-    size: (u32, u32),
-    surface: WlSurface,
-}
 
 pub struct Application {
+    pub conn: Connection,
+    pub event_queue: Option<EventQueue<Self>>,
+    pub qh: QueueHandle<Self>,
     pub registry_state: RegistryState,
     pub seat_state: SeatState,
     pub output_state: OutputState,
     pub shm_state: Shm,
+    pub compositor_state: CompositorState,
+    pub subcompositor_state: SubcompositorState,
+    pub xdg_shell: XdgShell,
+    pub layer_shell: LayerShell,
     pub windows: Vec<Weak<Window>>,
     pub layer_surfaces: Vec<Weak<LayerSurface>>,
     pub input_state: InputState,
@@ -34,25 +36,50 @@ pub struct Application {
 }
 
 impl Application {
-    /// Create a new Application container from the provided globals state pieces.
-    pub fn new(registry_state: RegistryState, seat_state: SeatState, output_state: OutputState, shm_state: Shm, input_state: InputState, cursor_shape_manager: CursorShapeManager
+    /// Create a new Application, initializing all Wayland globals and state.
+    pub fn new() -> Self {
+        let conn = Connection::connect_to_env().expect("Failed to connect to Wayland");
+        let (globals, event_queue) = registry_queue_init::<Self>(&conn).expect("Failed to init registry");
+        let qh: QueueHandle<Self> = event_queue.handle();
 
-    ) -> Self {
+        // Bind required globals
+        let compositor_state = CompositorState::bind(&globals, &qh).expect("wl_compositor not available");
+        let subcompositor_state = SubcompositorState::bind(compositor_state.wl_compositor().clone(), &globals, &qh).expect("wl_subcompositor not available");
+        let xdg_shell = XdgShell::bind(&globals, &qh).expect("xdg shell not available");
+        let shm_state = Shm::bind(&globals, &qh).expect("wl_shm not available");
+        let layer_shell = LayerShell::bind(&globals, &qh).expect("layer shell not available");
+        let cursor_shape_manager = CursorShapeManager::bind(&globals, &qh).expect("cursor shape manager not available");
+        let clipboard = unsafe { Clipboard::new(conn.display().id().as_ptr() as *mut _) };
+        
         Self {
-            registry_state,
-            seat_state,
-            output_state,
+            event_queue: Some(event_queue),
+            conn,
+            qh: qh.clone(),
+            subcompositor_state,
+            registry_state: RegistryState::new(&globals),
+            seat_state: SeatState::new(&globals, &qh),
+            output_state: OutputState::new(&globals, &qh),
             shm_state,
+            compositor_state,
+            xdg_shell,
+            layer_shell,
             windows: Vec::new(),
             layer_surfaces: Vec::new(),
-            input_state,
+            input_state: InputState::new(clipboard),
+            cursor_shape_manager,
             pool: None,
             last_pointer_enter_serial: None,
-            cursor_shape_manager,
             pointer_shape_devices: HashMap::new(),
         }
     }
 
+    pub fn run_blocking(&mut self) {       
+        // Run the Wayland event loop. This example will run until the process is killed
+        let mut event_queue = self.event_queue.take().unwrap();
+        loop {
+            event_queue.blocking_dispatch(self).expect("Wayland dispatch failed");
+        }
+    }
 
     fn find_window_by_surface(&self, surface: &WlSurface) -> Option<Weak<Window>> {
         for win in &self.windows {
@@ -144,19 +171,19 @@ impl CompositorHandler for Application {
 
     fn frame(
         &mut self,
-        conn: &Connection,
-        qh: &QueueHandle<Self>,
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
         surface: &WlSurface,
         _time: u32,
     ) {
         trace!("[MAIN] Frame callback {}", surface.id().as_ptr() as usize);
-        if let Some(layer) = self.find_layer_by_surface(surface).and_then(|weak| weak.upgrade()) {
+        if let Some(_layer) = self.find_layer_by_surface(surface).and_then(|weak| weak.upgrade()) {
             trace!("[MAIN] Found layer surface for frame");
             // layer.wl_surface().frame(qh, layer.wl_surface().clone());
             // layer.wl_surface().commit();
         }
 
-        if let Some(window) = self.find_window_by_surface(surface).and_then(|weak| weak.upgrade()) {
+        if let Some(_window) = self.find_window_by_surface(surface).and_then(|weak| weak.upgrade()) {
             trace!("[MAIN] Found xdg window for frame");
             // window.wl_surface().frame(qh, window.wl_surface().clone());
             // window.wl_surface().commit();
@@ -243,7 +270,7 @@ impl LayerShellHandler for Application {
 impl PopupHandler for Application {
     fn configure(
         &mut self,
-        conn: &Connection,
+        _conn: &Connection,
         qh: &QueueHandle<Self>,
         popup: &Popup,
         config: PopupConfigure,
@@ -253,7 +280,7 @@ impl PopupHandler for Application {
         self.single_color_example_buffer_configure(popup.wl_surface(), qh, config.width as u32, config.height as u32, (255, 0, 255));
     }
 
-    fn done(&mut self, conn: &Connection, qh: &QueueHandle<Self>, popup: &Popup) {
+    fn done(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _popup: &Popup) {
         
     }
 }
@@ -436,7 +463,7 @@ impl SeatHandler for Application {
             // }
         }
         if capability == Capability::Pointer {
-            self.seat_state.get_pointer(&qh, &seat);
+            let _ = self.seat_state.get_pointer(&qh, &seat);
             trace!("[MAIN] Creating themed pointer");
             
         }
