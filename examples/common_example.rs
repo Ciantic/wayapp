@@ -134,6 +134,7 @@ fn main() {
     }));
 
     trace!("Starting event loop for common example");
+	drop(example_window);
 
     // Run the Wayland event loop. This example will run until the process is killed
     app.run_blocking();
