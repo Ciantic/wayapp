@@ -1,12 +1,13 @@
-use std::{collections::HashMap, num::NonZero, rc::{Rc, Weak}};
+use std::{cell::RefCell, collections::HashMap, num::NonZero, rc::{Rc, Weak}};
 
 use log::trace;
 use smithay_client_toolkit::{compositor::{CompositorHandler, CompositorState}, delegate_compositor, delegate_keyboard, delegate_layer, delegate_output, delegate_pointer, delegate_registry, delegate_seat, delegate_shm, delegate_subcompositor, delegate_xdg_popup, delegate_xdg_shell, delegate_xdg_window, output::{OutputHandler, OutputState}, registry::{ProvidesRegistryState, RegistryState}, registry_handlers, seat::{Capability, SeatHandler, SeatState, keyboard::{KeyEvent, KeyboardHandler, Keysym}, pointer::{PointerEvent, PointerEventKind, PointerHandler, cursor_shape::CursorShapeManager}}, shell::{WaylandSurface, wlr_layer::{Anchor, KeyboardInteractivity, LayerShell, LayerShellHandler, LayerSurface, LayerSurfaceConfigure}, xdg::{XdgShell, popup::{Popup, PopupConfigure, PopupHandler}, window::{Window, WindowConfigure, WindowHandler}}}, shm::{Shm, ShmHandler, slot::SlotPool}, subcompositor::SubcompositorState};
 use smithay_clipboard::Clipboard;
+use wayland_backend::client::ObjectId;
 use wayland_client::{Connection, EventQueue, Proxy, QueueHandle, globals::registry_queue_init, protocol::{wl_keyboard::WlKeyboard, wl_output, wl_pointer::WlPointer, wl_seat, wl_shm, wl_surface::WlSurface}};
 use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::{Shape, WpCursorShapeDeviceV1};
 
-use crate::InputState;
+use crate::{InputState};
 
 
 pub struct Application {
@@ -21,8 +22,10 @@ pub struct Application {
     pub subcompositor_state: SubcompositorState,
     pub xdg_shell: XdgShell,
     pub layer_shell: LayerShell,
-    pub windows: Vec<Weak<Window>>,
-    pub layer_surfaces: Vec<Weak<LayerSurface>>,
+    pub windows: Vec<Box<dyn WindowContainer>>,
+    pub layer_surfaces: Vec<Box<dyn LayerSurfaceContainer>>,
+    pub popups: Vec<Box<dyn PopupContainer>>,
+
     pub input_state: InputState,
     pub cursor_shape_manager: CursorShapeManager,
     
@@ -65,6 +68,9 @@ impl Application {
             layer_shell,
             windows: Vec::new(),
             layer_surfaces: Vec::new(),
+            popups: Vec::new(),
+            // windows: Vec::new(),
+            // layer_surfaces: Vec::new(),
             input_state: InputState::new(clipboard),
             cursor_shape_manager,
             pool: None,
@@ -81,28 +87,28 @@ impl Application {
         }
     }
 
-    fn find_window_by_surface(&self, surface: &WlSurface) -> Option<Weak<Window>> {
-        for win in &self.windows {
-            if let Some(strong_win) = win.upgrade() {
-                if strong_win.wl_surface().id().as_ptr() == surface.id().as_ptr() {
-                    return Some(Rc::downgrade(&strong_win));
-                }
-            }
-        }
-        None
-    }
+    // fn find_window_by_surface(&self, surface: &WlSurface) -> Option<Weak<Window>> {
+    //     for win in &self.windows {
+    //         if let Some(strong_win) = win.upgrade() {
+    //             if strong_win.wl_surface().id().as_ptr() == surface.id().as_ptr() {
+    //                 return Some(Rc::downgrade(&strong_win));
+    //             }
+    //         }
+    //     }
+    //     None
+    // }
 
-    fn find_layer_by_surface(&self, surface: &WlSurface) -> Option<Weak<LayerSurface>> {
-        for layer in &self.layer_surfaces {
-            if let Some(strong_layer) = layer.upgrade() {
+    // fn find_layer_by_surface(&self, surface: &WlSurface) -> Option<Weak<LayerSurface>> {
+    //     for layer in &self.layer_surfaces {
+    //         if let Some(strong_layer) = layer.upgrade() {
         
-                if strong_layer.wl_surface().id().as_ptr() == surface.id().as_ptr() {
-                    return Some(Rc::downgrade(&strong_layer));
-                }
-            }
-        }
-        None
-    }
+    //             if strong_layer.wl_surface().id().as_ptr() == surface.id().as_ptr() {
+    //                 return Some(Rc::downgrade(&strong_layer));
+    //             }
+    //         }
+    //     }
+    //     None
+    // }
 
     fn get_or_create_shape_device(&mut self, pointer: &WlPointer, qh: &QueueHandle<Self>) -> &WpCursorShapeDeviceV1 {
         let pointer_id = pointer.id().as_ptr() as u32;
@@ -177,17 +183,17 @@ impl CompositorHandler for Application {
         _time: u32,
     ) {
         trace!("[MAIN] Frame callback {}", surface.id().as_ptr() as usize);
-        if let Some(_layer) = self.find_layer_by_surface(surface).and_then(|weak| weak.upgrade()) {
-            trace!("[MAIN] Found layer surface for frame");
-            // layer.wl_surface().frame(qh, layer.wl_surface().clone());
-            // layer.wl_surface().commit();
-        }
+        // if let Some(_layer) = self.find_layer_by_surface(surface).and_then(|weak| weak.upgrade()) {
+        //     trace!("[MAIN] Found layer surface for frame");
+        //     // layer.wl_surface().frame(qh, layer.wl_surface().clone());
+        //     // layer.wl_surface().commit();
+        // }
 
-        if let Some(_window) = self.find_window_by_surface(surface).and_then(|weak| weak.upgrade()) {
-            trace!("[MAIN] Found xdg window for frame");
-            // window.wl_surface().frame(qh, window.wl_surface().clone());
-            // window.wl_surface().commit();
-        }
+        // if let Some(_window) = self.find_window_by_surface(surface).and_then(|weak| weak.upgrade()) {
+        //     trace!("[MAIN] Found xdg window for frame");
+        //     // window.wl_surface().frame(qh, window.wl_surface().clone());
+        //     // window.wl_surface().commit();
+        // }
         // self.render(conn, qh);
         // if needs_repaint {
 
@@ -286,10 +292,16 @@ impl PopupHandler for Application {
 }
 
 impl WindowHandler for Application {
-    fn request_close(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &Window) {
+    fn request_close(&mut self, _: &Connection, _: &QueueHandle<Self>, target_window: &Window) {
         // No-op for this simple helper container
         trace!("[COMMON] XDG window close requested");
-        // self.windows.clear();
+        
+        if let Some(idx) = self.windows.iter().position(|w| w.get_window() == target_window) {
+            let mut win = self.windows.remove(idx);
+            if !win.request_close(self) {
+                self.windows.insert(idx, win); // Re-insert if not closed
+            }
+        }
     }
 
     fn configure(
@@ -301,9 +313,12 @@ impl WindowHandler for Application {
         _serial: u32,
     ) {
         trace!("[COMMON] XDG window configure");
-        let width = configure.new_size.0.unwrap_or_else(|| NonZero::new(256).unwrap()).get();
-        let height = configure.new_size.1.unwrap_or_else(|| NonZero::new(256).unwrap()).get();
-        self.single_color_example_buffer_configure(target_window.wl_surface(), &qh, width, height, (255,0, 0));
+        
+        if let Some(idx) = self.windows.iter().position(|w| w.get_window() == target_window) {
+            let mut win = self.windows.remove(idx);
+            win.configure(self, configure.clone());
+            self.windows.insert(idx, win);
+        }
     }
 }
 
@@ -510,3 +525,100 @@ delegate_xdg_window!(Application);
 delegate_xdg_popup!(Application);
 
 delegate_registry!(Application);
+
+
+
+pub trait WindowContainer {
+    fn configure(
+        &mut self,
+        app: &mut Application,
+        configure: WindowConfigure,
+    );
+
+    fn request_close(&mut self, app: &mut Application) -> bool;
+
+    fn get_window(&self) -> &Window;
+}
+
+pub trait LayerSurfaceContainer {
+    fn configure(
+        &mut self,
+        qh: &QueueHandle<Application>,
+        config: LayerSurfaceConfigure,
+    );
+
+    fn request_close(&mut self);
+}
+
+pub trait PopupContainer {
+    fn configure(
+        &mut self,
+        qh: &QueueHandle<Application>,
+        config: PopupConfigure,
+    );
+
+    fn done(&mut self);
+}
+
+pub struct ExampleSingleColorWindow {
+    pub window: Window,
+    pub color: (u8, u8, u8),
+    pub pool: Option<SlotPool>,
+}
+
+impl ExampleSingleColorWindow {
+    pub fn single_color_example_buffer_configure(&mut self, shm_state: &Shm, surface: &WlSurface, qh: &QueueHandle<Application>, new_width: u32, new_height: u32, color: (u8, u8, u8)) {
+
+        trace!("[COMMON] Create Brown Buffer");
+
+        // Ensure pool exists
+        if self.pool.is_none() {
+            let size = (new_width as usize) * (new_height as usize) * 4;
+            self.pool = Some(SlotPool::new(size, shm_state).expect("Failed to create SlotPool"));
+        }
+
+        let pool = self.pool.as_mut().unwrap();
+        let stride = new_width as i32 * 4;
+
+        // Create a buffer and paint it a simple color
+        let (buffer, _maybe_canvas) = pool.create_buffer(new_width as i32, new_height as i32, stride, wl_shm::Format::Argb8888).expect("create buffer");
+        if let Some(canvas) = pool.canvas(&buffer) {
+            for chunk in canvas.chunks_exact_mut(4) {
+                // ARGB little-endian: B, G, R, A
+                chunk[0] = color.2; // B
+                chunk[1] = color.1; // G
+                chunk[2] = color.0; // R
+                chunk[3] = 0xFF; // A
+            }
+        }
+
+        // Damage, frame and attach
+        surface.damage_buffer(0, 0, new_width as i32, new_height as i32);
+        surface.frame(qh, surface.clone());
+        buffer.attach_to(surface).expect("buffer attach");
+        surface.commit();
+    }
+}
+
+impl WindowContainer for ExampleSingleColorWindow {
+    fn configure(
+        &mut self,
+        app: &mut Application,
+        configure: WindowConfigure,
+    ) {
+        let width = configure.new_size.0.unwrap_or_else(|| NonZero::new(256).unwrap()).get();
+        let height = configure.new_size.1.unwrap_or_else(|| NonZero::new(256).unwrap()).get();
+
+        // Handle window configuration changes here
+        self.single_color_example_buffer_configure(&app.shm_state, &self.window.wl_surface().clone(), &app.qh, width, height, self.color);
+    }
+
+    fn request_close(&mut self, app: &mut Application) -> bool {
+        // Handle window close request here
+        true
+    }
+
+    fn get_window(&self) -> &Window {
+        &self.window
+    }
+}

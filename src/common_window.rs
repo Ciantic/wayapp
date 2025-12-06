@@ -1,9 +1,10 @@
-use std::rc::Weak;
 
-use log::trace;
-use smithay_client_toolkit::{delegate_keyboard, delegate_pointer, seat::{Capability, SeatHandler, SeatState, keyboard::{KeyEvent, KeyboardHandler, Modifiers}, pointer::{PointerEvent, PointerHandler, ThemeSpec, ThemedPointer}}, shell::{WaylandSurface, wlr_layer::{LayerShellHandler, LayerSurface}, xdg::{popup::{ConfigureKind, Popup, PopupConfigure, PopupHandler}, window::{Window, WindowConfigure, WindowHandler}}}, shm::{Shm, slot::Buffer}};
-use wayland_client::{Connection, QueueHandle, protocol::{wl_keyboard::WlKeyboard, wl_surface::WlSurface}};
+use smithay_client_toolkit::{seat::{keyboard::{KeyEvent, Modifiers}, pointer::PointerEvent}, shell::{wlr_layer::LayerSurface, xdg::{popup::{Popup, PopupConfigure}, window::{Window, WindowConfigure}}}, shm::slot::Buffer};
+use wayland_client::QueueHandle;
 use wayland_protocols::wp::viewporter::client::wp_viewport::WpViewport;
+
+use crate::Application;
+
 
 
 trait CustomKeyboardHandler {
