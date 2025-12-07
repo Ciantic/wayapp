@@ -28,11 +28,11 @@ fn main() {
     example_layer_surface.set_size(256, 256);
     example_layer_surface.commit();
 
-    app.layer_surfaces.push(Box::new(ExampleSingleColorLayerSurface {
+    app.push_layer_surface(ExampleSingleColorLayerSurface {
         layer_surface: example_layer_surface,
         color: (255, 0, 0),
         pool: None,
-    }));
+    });
 
     let example_layer_surface2 = app.layer_shell.create_layer_surface(
         &app.qh,
@@ -46,11 +46,11 @@ fn main() {
     example_layer_surface2.set_size(512, 256);
     example_layer_surface2.commit();
 
-    app.layer_surfaces.push(Box::new(ExampleSingleColorLayerSurface {
+    app.push_layer_surface(ExampleSingleColorLayerSurface {
         layer_surface: example_layer_surface2,
         color: (0, 255, 0),
         pool: None,
-    }));
+    });
 
     // Example window --------------------------
     let example_win_surface = app.compositor_state.create_surface(&app.qh);
@@ -64,11 +64,11 @@ fn main() {
     example_window.set_min_size(Some((256, 256)));
     example_window.commit();
 
-    app.windows.push(Box::new(ExampleSingleColorWindow {
+    app.push_window(ExampleSingleColorWindow {
         window: example_window.clone(),
         color: (0, 0, 255),
         pool: None,
-    }));
+    });
 
     // Example child window --------------------------
     // Create a surface for the child window
@@ -84,11 +84,11 @@ fn main() {
     child_window.set_min_size(Some((128, 128)));
     child_window.commit();
 
-	app.windows.push(Box::new(ExampleSingleColorWindow {
-		window: child_window,
-		color: (255, 0, 255),
-		pool: None,
-	}));
+    app.push_window(ExampleSingleColorWindow {
+        window: child_window,
+        color: (255, 0, 255),
+        pool: None,
+    });
 
     // Example subsurface --------------------------
     let (subsurface, sub_wlsurface) = app
@@ -109,7 +109,7 @@ fn main() {
     // Configure initial size for subsurface
     sub_example.configure(100, 100);
     
-    app.subsurfaces.push(Box::new(sub_example));
+    app.push_subsurface(sub_example);
 
     // Example popup, attached to example window --------------------------
     let xdg_surface = example_window.xdg_surface();
@@ -126,11 +126,11 @@ fn main() {
     )
     .unwrap();
 
-    app.popups.push(Box::new(ExampleSingleColorPopup {
+    app.push_popup(ExampleSingleColorPopup {
         popup,
         color: (255, 255, 0),
         pool: None,
-    }));
+    });
 
     trace!("Starting event loop for common example");
 	drop(example_window);

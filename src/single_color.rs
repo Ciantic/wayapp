@@ -6,7 +6,7 @@ use smithay_client_toolkit::{seat::{keyboard::{KeyEvent, Modifiers}, pointer::Po
 use wayland_client::{QueueHandle, protocol::{wl_shm, wl_surface::WlSurface}};
 use wayland_protocols::wp::viewporter::client::wp_viewport::WpViewport;
 
-use crate::{Application, LayerSurfaceContainer, PopupContainer, SubsurfaceContainer, WAYAPP, WindowContainer, get_app};
+use crate::{Application, BaseTrait, CompositorHandlerContainer, KeyboardHandlerContainer, LayerSurfaceContainer, PointerHandlerContainer, PopupContainer, SubsurfaceContainer, WAYAPP, WindowContainer, get_app};
 
 
 fn single_color_example_buffer_configure(pool: &mut SlotPool, shm_state: &Shm, surface: &WlSurface, qh: &QueueHandle<Application>, new_width: u32, new_height: u32, color: (u8, u8, u8)) {
@@ -14,7 +14,6 @@ fn single_color_example_buffer_configure(pool: &mut SlotPool, shm_state: &Shm, s
     trace!("[COMMON] Create Brown Buffer");
 
     let stride = new_width as i32 * 4;
-
     // Create a buffer and paint it a simple color
     let (buffer, _maybe_canvas) = pool.create_buffer(new_width as i32, new_height as i32, stride, wl_shm::Format::Argb8888).expect("create buffer");
     if let Some(canvas) = pool.canvas(&buffer) {
@@ -40,10 +39,15 @@ pub struct ExampleSingleColorWindow {
     pub pool: Option<SlotPool>,
 }
 
+impl CompositorHandlerContainer for ExampleSingleColorWindow {}
+impl KeyboardHandlerContainer for ExampleSingleColorWindow {}
+impl PointerHandlerContainer for ExampleSingleColorWindow {}
+impl BaseTrait for ExampleSingleColorWindow {}
+
 impl WindowContainer for ExampleSingleColorWindow {
     fn configure(
         &mut self,
-        configure: WindowConfigure,
+        configure: &WindowConfigure,
     ) {
         let app = get_app();
         let width = configure.new_size.0.unwrap_or_else(|| NonZero::new(256).unwrap()).get();
@@ -58,8 +62,7 @@ impl WindowContainer for ExampleSingleColorWindow {
         single_color_example_buffer_configure(pool, &app.shm_state, &self.window.wl_surface().clone(), &app.qh, width, height, self.color);
     }
 
-    fn request_close(&mut self) -> bool {
-        // Handle window close request here
+    fn allowed_to_close(&self) -> bool {
         true
     }
 
@@ -74,10 +77,15 @@ pub struct ExampleSingleColorLayerSurface {
     pub pool: Option<SlotPool>,
 }
 
+impl CompositorHandlerContainer for ExampleSingleColorLayerSurface {}
+impl KeyboardHandlerContainer for ExampleSingleColorLayerSurface {}
+impl PointerHandlerContainer for ExampleSingleColorLayerSurface {}
+impl BaseTrait for ExampleSingleColorLayerSurface {}
+
 impl LayerSurfaceContainer for ExampleSingleColorLayerSurface {
     fn configure(
         &mut self,
-        config: LayerSurfaceConfigure,
+        config: &LayerSurfaceConfigure,
     ) {
         let app = get_app();
         let width = config.new_size.0;
@@ -92,7 +100,7 @@ impl LayerSurfaceContainer for ExampleSingleColorLayerSurface {
         single_color_example_buffer_configure(pool, &app.shm_state, &self.layer_surface.wl_surface().clone(), &app.qh, width, height, self.color);
     }
 
-    fn request_close(&mut self) {
+    fn closed(&mut self) {
         // Handle layer surface close request here
     }
 
@@ -107,10 +115,15 @@ pub struct ExampleSingleColorPopup {
     pub pool: Option<SlotPool>,
 }
 
+impl CompositorHandlerContainer for ExampleSingleColorPopup {}
+impl KeyboardHandlerContainer for ExampleSingleColorPopup {}
+impl PointerHandlerContainer for ExampleSingleColorPopup {}
+impl BaseTrait for ExampleSingleColorPopup {}
+
 impl PopupContainer for ExampleSingleColorPopup {
     fn configure(
         &mut self,
-        config: PopupConfigure,
+        config: &PopupConfigure,
     ) {
         let app = get_app();
         let width = config.width as u32;
@@ -139,6 +152,11 @@ pub struct ExampleSingleColorSubsurface {
     pub color: (u8, u8, u8),
     pub pool: Option<SlotPool>,
 }
+
+impl CompositorHandlerContainer for ExampleSingleColorSubsurface {}
+impl KeyboardHandlerContainer for ExampleSingleColorSubsurface {}
+impl PointerHandlerContainer for ExampleSingleColorSubsurface {}
+impl BaseTrait for ExampleSingleColorSubsurface {}
 
 impl SubsurfaceContainer for ExampleSingleColorSubsurface {
     fn configure(&mut self, width: u32, height: u32) {

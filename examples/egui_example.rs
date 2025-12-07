@@ -72,11 +72,11 @@ fn main() {
     example_window.set_min_size(Some((256, 256)));
     example_window.commit();
 
-    app.windows.push(Box::new(ExampleSingleColorWindow {
+    app.push_window(ExampleSingleColorWindow {
         window: example_window,
         color: (0, 255, 0),
         pool: None,
-    }));
+    });
 
     // app.window_configure.insert(example_window.wl_surface().id().clone(), Box::new(|app, config, wl_surface| {
     //     let width = config.new_size.0.unwrap().get();

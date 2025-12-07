@@ -3,14 +3,14 @@ use std::num::NonZero;
 
 use log::trace;
 use smithay_client_toolkit::{seat::{keyboard::{KeyEvent, Modifiers}, pointer::PointerEvent}, shell::{WaylandSurface, wlr_layer::{LayerSurface, LayerSurfaceConfigure}, xdg::{popup::{Popup, PopupConfigure}, window::{Window, WindowConfigure}}}, shm::{Shm, slot::{Buffer, SlotPool}}};
-use wayland_client::{QueueHandle, protocol::{wl_shm, wl_surface::WlSurface}};
+use wayland_client::{QueueHandle, protocol::{wl_output::{self, Transform, WlOutput}, wl_shm, wl_surface::WlSurface}};
 use wayland_protocols::wp::viewporter::client::wp_viewport::WpViewport;
 
 use crate::Application;
 
 
 
-trait CustomKeyboardHandler {
+pub trait KeyboardHandlerContainer {
     fn enter(&mut self) {
 
     }
@@ -19,56 +19,96 @@ trait CustomKeyboardHandler {
 
     }
 
-    fn press_key(&mut self, event: KeyEvent) {
+    fn press_key(&mut self, event: &KeyEvent) {
 
     }
 
-    fn release_key(&mut self, event: KeyEvent) {
+    fn release_key(&mut self, event: &KeyEvent) {
 
     }
 
-    fn update_modifiers(&mut self, modifiers: Modifiers) {
+    fn update_modifiers(&mut self, modifiers: &Modifiers) {
 
     }
 
-    fn repeat_key(&mut self, event: KeyEvent) {
-    }
-}
-
-trait CustomPointerHandler {
-    fn pointer_frame(&mut self, events: &[PointerEvent]) {
-
+    fn repeat_key(&mut self, event: &KeyEvent) {
     }
 }
 
+pub trait PointerHandlerContainer {
+    fn pointer_frame(&mut self, events: &PointerEvent) {
 
+    }
+}
 
-pub trait WindowContainer {
+pub trait CompositorHandlerContainer {
+    
+    fn scale_factor_changed(
+        &mut self,
+        new_factor: i32,
+    ) {
+    }
+
+    fn transform_changed(
+        &mut self,
+        new_transform: &Transform,
+    ) {
+    }
+
+    fn frame(
+        &mut self,
+        time: u32,
+    ) {
+    }
+
+    fn surface_enter(
+        &mut self,
+        output: &WlOutput,
+    ) {
+    }
+
+    fn surface_leave(
+        &mut self,
+        output: &WlOutput,
+    ) {
+    }
+}
+
+pub trait BaseTrait : CompositorHandlerContainer + KeyboardHandlerContainer + PointerHandlerContainer {}
+
+pub trait WindowContainer: BaseTrait {
     fn configure(
         &mut self,
-        configure: WindowConfigure,
+        configure: &WindowConfigure,
     );
-
-    fn request_close(&mut self) -> bool;
 
     fn get_window(&self) -> &Window;
+
+    fn allowed_to_close(&self) -> bool {
+        true
+    }
+
+    fn request_close(&mut self) {
+        
+    }
+
 }
 
-pub trait LayerSurfaceContainer {
+pub trait LayerSurfaceContainer: BaseTrait {
     fn configure(
         &mut self,
-        config: LayerSurfaceConfigure,
+        config: &LayerSurfaceConfigure,
     );
 
-    fn request_close(&mut self);
+    fn closed(&mut self) {}
 
     fn get_layer_surface(&self) -> &LayerSurface;
 }
 
-pub trait PopupContainer {
+pub trait PopupContainer : BaseTrait {
     fn configure(
         &mut self,
-        config: PopupConfigure,
+        config: &PopupConfigure,
     );
 
     fn done(&mut self);
@@ -76,7 +116,7 @@ pub trait PopupContainer {
     fn get_popup(&self) -> &Popup;
 }
 
-pub trait SubsurfaceContainer {
+pub trait SubsurfaceContainer : BaseTrait {
     fn configure(&mut self, width: u32, height: u32);
 
     fn get_wl_surface(&self) -> &WlSurface;
