@@ -224,8 +224,6 @@ impl CompositorHandler for Application {
         surface: &WlSurface,
         new_factor: i32,
     ) {
-        trace!("[MAIN] Scale factor changed to {}", new_factor);
-
         self.get_by_surface_id(&surface.id()).and_then(|kind| {
             match kind {
                 Kind::Window(window) => {
@@ -281,8 +279,7 @@ impl CompositorHandler for Application {
         surface: &WlSurface,
         time: u32,
     ) {
-        trace!("[MAIN] Frame callback {}", surface.id().as_ptr() as usize);
-        self.get_by_surface_id(&surface.id()).and_then(|kind| {
+        if let Some(kind) = self.get_by_surface_id(&surface.id()) {
             match kind {
                 Kind::Window(window) => {
                     window.borrow_mut().frame(time);
@@ -297,8 +294,7 @@ impl CompositorHandler for Application {
                     subsurface.borrow_mut().frame(time);
                 },
             }
-            Some(())
-        });
+        }
     }
 
     fn surface_enter(
