@@ -1,3 +1,4 @@
+use egui::PlatformOutput;
 use log::trace;
 use pollster::block_on;
 use raw_window_handle::{
@@ -20,6 +21,7 @@ use smithay_client_toolkit::{
 use smithay_clipboard::Clipboard;
 use std::ptr::NonNull;
 use wayland_client::{Proxy, QueueHandle, protocol::wl_surface::WlSurface};
+use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::Shape;
 
 use crate::{
     Application, BaseTrait, CompositorHandlerContainer, EguiRenderer, InputState,
@@ -129,7 +131,12 @@ impl<A: EguiAppData> EguiSurfaceState<A> {
 
     fn handle_pointer_event(&mut self, event: &PointerEvent) {
         self.input_state.handle_pointer_event(event);
-        self.render();
+        let platform_output = self.render();
+
+        // Handle cursor icon changes from EGUI
+        let app = get_app();
+        let cursor_shape = egui_to_cursor_shape(platform_output.cursor_icon);
+        app.set_cursor(cursor_shape);
     }
 
     fn handle_keyboard_enter(&mut self) {
@@ -164,7 +171,7 @@ impl<A: EguiAppData> EguiSurfaceState<A> {
         self.render();
     }
 
-    fn render(&mut self) {
+    fn render(&mut self) -> PlatformOutput {
         trace!("Rendering surface {}", self.wl_surface.id());
         let surface_texture = self
             .surface
@@ -226,6 +233,7 @@ impl<A: EguiAppData> EguiSurfaceState<A> {
                 .frame(&self.queue_handle, self.wl_surface.clone());
             self.wl_surface.commit();
         }
+        platform_output
     }
 
     fn reconfigure_surface(&mut self) {
@@ -539,5 +547,49 @@ impl<A: EguiAppData> SubsurfaceContainer for EguiSubsurface<A> {
 
     fn get_wl_surface(&self) -> &WlSurface {
         &self.wl_surface
+    }
+}
+
+/// Convert EGUI cursor icon to Wayland cursor shape
+fn egui_to_cursor_shape(cursor: egui::CursorIcon) -> Shape {
+    use egui::CursorIcon::*;
+    use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::Shape as CursorShape;
+    
+    match cursor {
+        Default => CursorShape::Default,
+        None => CursorShape::Default,
+        ContextMenu => CursorShape::ContextMenu,
+        Help => CursorShape::Help,
+        PointingHand => CursorShape::Pointer,
+        Progress => CursorShape::Progress,
+        Wait => CursorShape::Wait,
+        Cell => CursorShape::Cell,
+        Crosshair => CursorShape::Crosshair,
+        Text => CursorShape::Text,
+        VerticalText => CursorShape::VerticalText,
+        Alias => CursorShape::Alias,
+        Copy => CursorShape::Copy,
+        Move => CursorShape::Move,
+        NoDrop => CursorShape::NoDrop,
+        NotAllowed => CursorShape::NotAllowed,
+        Grab => CursorShape::Grab,
+        Grabbing => CursorShape::Grabbing,
+        AllScroll => CursorShape::AllScroll,
+        ResizeHorizontal => CursorShape::EwResize,
+        ResizeNeSw => CursorShape::NeswResize,
+        ResizeNwSe => CursorShape::NwseResize,
+        ResizeVertical => CursorShape::NsResize,
+        ResizeEast => CursorShape::EResize,
+        ResizeSouthEast => CursorShape::SeResize,
+        ResizeSouth => CursorShape::SResize,
+        ResizeSouthWest => CursorShape::SwResize,
+        ResizeWest => CursorShape::WResize,
+        ResizeNorthWest => CursorShape::NwResize,
+        ResizeNorth => CursorShape::NResize,
+        ResizeNorthEast => CursorShape::NeResize,
+        ResizeColumn => CursorShape::ColResize,
+        ResizeRow => CursorShape::RowResize,
+        ZoomIn => CursorShape::ZoomIn,
+        ZoomOut => CursorShape::ZoomOut,
     }
 }

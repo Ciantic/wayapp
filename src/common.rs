@@ -506,25 +506,6 @@ impl PointerHandler for Application {
                 }
             }
         }
-
-        // Example how to set cursor shape
-        if let Some(last_event) = events.last() {
-            trace!("[MAIN] Setting cursor shape to Move for pointer event");
-            // If last event was within 20x20 region at top-left, set to Move shape
-            let (x, y) = last_event.position;
-            if x < 20.0 && y < 20.0 {
-                trace!("[MAIN] Pointer within top-left 20x20 region, setting Move shape");
-                self.set_cursor(Shape::Move);
-            } else {
-                trace!("[MAIN] Pointer outside top-left 20x20 region, setting Pointer shape");
-                self.set_cursor(Shape::Pointer);
-            }
-        }
-        
-        // Request a redraw after input
-        trace!("[MAIN] Requesting frame after pointer input");
-        // self.layer_surface.wl_surface().frame(&_qh, self.layer_surface.wl_surface().clone());
-        // self.layer_surface.wl_surface().commit();
     }
 }
 
