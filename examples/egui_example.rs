@@ -62,7 +62,7 @@ fn main() {
     example_window.commit();
 
     let egui_app = EguiApp::default();
-    app.push_window(EguiWindow::new(&app, example_window, egui_app));
+    app.push_window(EguiWindow::new(example_window, egui_app, 256, 256));
 
     let shared_surface = app.compositor_state.create_surface(&app.qh);
     let layer_surface = app.layer_shell.create_layer_surface(
@@ -79,9 +79,10 @@ fn main() {
     layer_surface.commit();
 
     app.push_layer_surface(EguiLayerSurface::new(
-        &app,
         layer_surface,
-        EguiApp::default()));
+        EguiApp::default(),
+        256,
+        256));
 
     app.run_blocking();
 }

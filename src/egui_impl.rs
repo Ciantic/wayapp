@@ -12,7 +12,7 @@ use wayland_client::{Proxy, QueueHandle, protocol::wl_surface::WlSurface};
 use crate::{
     Application, BaseTrait, CompositorHandlerContainer, EguiRenderer, InputState,
     KeyboardHandlerContainer, LayerSurfaceContainer, PointerHandlerContainer, PopupContainer,
-    SubsurfaceContainer, WindowContainer,
+    SubsurfaceContainer, WindowContainer, get_app,
 };
 
 pub trait EguiAppData {
@@ -39,7 +39,8 @@ struct EguiSurfaceState<A: EguiAppData> {
 }
 
 impl<A: EguiAppData> EguiSurfaceState<A> {
-    fn new(app: &Application, wl_surface: WlSurface, egui_app: A) -> Self {
+    fn new(wl_surface: WlSurface, egui_app: A) -> Self {
+        let app = get_app();
         let raw_display_handle = RawDisplayHandle::Wayland(WaylandDisplayHandle::new(
             NonNull::new(app.conn.backend().display_ptr() as *mut _)
                 .expect("Wayland display pointer was null"),
@@ -95,8 +96,8 @@ impl<A: EguiAppData> EguiSurfaceState<A> {
             egui_app,
             input_state,
             queue_handle: app.qh.clone(),
-            width: 1,
-            height: 1,
+            width: 256,
+            height: 256,
             scale_factor: 1,
             surface_config: None,
             output_format,
@@ -241,8 +242,10 @@ pub struct EguiWindow<A: EguiAppData> {
 }
 
 impl<A: EguiAppData> EguiWindow<A> {
-    pub fn new(app: &Application, window: Window, egui_app: A) -> Self {
-        let surface = EguiSurfaceState::new(app, window.wl_surface().clone(), egui_app);
+    pub fn new(window: Window, egui_app: A, width: u32, height: u32) -> Self {
+        let mut surface = EguiSurfaceState::new(window.wl_surface().clone(), egui_app);
+        surface.width = width;
+        surface.height = height;
         Self { window, surface }
     }
 }
@@ -312,8 +315,10 @@ pub struct EguiLayerSurface<A: EguiAppData> {
 }
 
 impl<A: EguiAppData> EguiLayerSurface<A> {
-    pub fn new(app: &Application, layer_surface: LayerSurface, egui_app: A) -> Self {
-        let surface = EguiSurfaceState::new(app, layer_surface.wl_surface().clone(), egui_app);
+    pub fn new(layer_surface: LayerSurface, egui_app: A, width: u32, height: u32) -> Self {
+        let mut surface = EguiSurfaceState::new(layer_surface.wl_surface().clone(), egui_app);
+        surface.width = width;
+        surface.height = height;
         Self { layer_surface, surface }
     }
 }
@@ -382,8 +387,10 @@ pub struct EguiPopup<A: EguiAppData> {
 }
 
 impl<A: EguiAppData> EguiPopup<A> {
-    pub fn new(app: &Application, popup: Popup, egui_app: A) -> Self {
-        let surface = EguiSurfaceState::new(app, popup.wl_surface().clone(), egui_app);
+    pub fn new(popup: Popup, egui_app: A, width: u32, height: u32) -> Self {
+        let mut surface = EguiSurfaceState::new(popup.wl_surface().clone(), egui_app);
+        surface.width = width;
+        surface.height = height;
         Self { popup, surface }
     }
 }
@@ -453,8 +460,10 @@ pub struct EguiSubsurface<A: EguiAppData> {
 }
 
 impl<A: EguiAppData> EguiSubsurface<A> {
-    pub fn new(app: &Application, wl_surface: WlSurface, egui_app: A) -> Self {
-        let surface = EguiSurfaceState::new(app, wl_surface.clone(), egui_app);
+    pub fn new(wl_surface: WlSurface, egui_app: A, width: u32, height: u32) -> Self {
+        let mut surface = EguiSurfaceState::new(wl_surface.clone(), egui_app);
+        surface.width = width;
+        surface.height = height;
         Self { wl_surface, surface }
     }
 }
