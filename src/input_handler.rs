@@ -107,15 +107,10 @@ impl InputState {
         
         // Check for clipboard operations BEFORE general key handling
         if pressed && !is_repeat && self.modifiers.ctrl {
-            // XKB key constants
-            const XKB_KEY_c: u32 = 0x0063;
-            const XKB_KEY_x: u32 = 0x0078;
-            const XKB_KEY_v: u32 = 0x0076;
-
-            match event.keysym.raw() {
-                XKB_KEY_c => self.events.push(Event::Copy),
-                XKB_KEY_x => self.events.push(Event::Cut),
-                XKB_KEY_v => self.events.push(Event::Paste(self.clipboard.load().unwrap_or_default())),
+            match event.keysym {
+                Keysym::c => self.events.push(Event::Copy),
+                Keysym::x => self.events.push(Event::Cut),
+                Keysym::v => self.events.push(Event::Paste(self.clipboard.load().unwrap_or_default())),
                 _ => (),
             }
         }
@@ -217,146 +212,77 @@ fn wayland_button_to_egui(button: u32) -> Option<PointerButton> {
 }
 
 fn keysym_to_egui_key(keysym: Keysym) -> Option<Key> {
-    // XKB key constants from xkbcommon
-    const XKB_KEY_Escape: u32 = 0xff1b;
-    const XKB_KEY_Return: u32 = 0xff0d;
-    const XKB_KEY_KP_Enter: u32 = 0xff8d;
-    const XKB_KEY_Tab: u32 = 0xff09;
-    const XKB_KEY_BackSpace: u32 = 0xff08;
-    const XKB_KEY_Insert: u32 = 0xff63;
-    const XKB_KEY_Delete: u32 = 0xffff;
-    const XKB_KEY_Home: u32 = 0xff50;
-    const XKB_KEY_End: u32 = 0xff57;
-    const XKB_KEY_Page_Up: u32 = 0xff55;
-    const XKB_KEY_Page_Down: u32 = 0xff56;
-    const XKB_KEY_Left: u32 = 0xff51;
-    const XKB_KEY_Right: u32 = 0xff53;
-    const XKB_KEY_Up: u32 = 0xff52;
-    const XKB_KEY_Down: u32 = 0xff54;
-    const XKB_KEY_space: u32 = 0x0020;
-    
-    const XKB_KEY_a: u32 = 0x0061;
-    const XKB_KEY_b: u32 = 0x0062;
-    const XKB_KEY_c: u32 = 0x0063;
-    const XKB_KEY_d: u32 = 0x0064;
-    const XKB_KEY_e: u32 = 0x0065;
-    const XKB_KEY_f: u32 = 0x0066;
-    const XKB_KEY_g: u32 = 0x0067;
-    const XKB_KEY_h: u32 = 0x0068;
-    const XKB_KEY_i: u32 = 0x0069;
-    const XKB_KEY_j: u32 = 0x006a;
-    const XKB_KEY_k: u32 = 0x006b;
-    const XKB_KEY_l: u32 = 0x006c;
-    const XKB_KEY_m: u32 = 0x006d;
-    const XKB_KEY_n: u32 = 0x006e;
-    const XKB_KEY_o: u32 = 0x006f;
-    const XKB_KEY_p: u32 = 0x0070;
-    const XKB_KEY_q: u32 = 0x0071;
-    const XKB_KEY_r: u32 = 0x0072;
-    const XKB_KEY_s: u32 = 0x0073;
-    const XKB_KEY_t: u32 = 0x0074;
-    const XKB_KEY_u: u32 = 0x0075;
-    const XKB_KEY_v: u32 = 0x0076;
-    const XKB_KEY_w: u32 = 0x0077;
-    const XKB_KEY_x: u32 = 0x0078;
-    const XKB_KEY_y: u32 = 0x0079;
-    const XKB_KEY_z: u32 = 0x007a;
-    
-    const XKB_KEY_0: u32 = 0x0030;
-    const XKB_KEY_1: u32 = 0x0031;
-    const XKB_KEY_2: u32 = 0x0032;
-    const XKB_KEY_3: u32 = 0x0033;
-    const XKB_KEY_4: u32 = 0x0034;
-    const XKB_KEY_5: u32 = 0x0035;
-    const XKB_KEY_6: u32 = 0x0036;
-    const XKB_KEY_7: u32 = 0x0037;
-    const XKB_KEY_8: u32 = 0x0038;
-    const XKB_KEY_9: u32 = 0x0039;
-    
-    const XKB_KEY_F1: u32 = 0xffbe;
-    const XKB_KEY_F2: u32 = 0xffbf;
-    const XKB_KEY_F3: u32 = 0xffc0;
-    const XKB_KEY_F4: u32 = 0xffc1;
-    const XKB_KEY_F5: u32 = 0xffc2;
-    const XKB_KEY_F6: u32 = 0xffc3;
-    const XKB_KEY_F7: u32 = 0xffc4;
-    const XKB_KEY_F8: u32 = 0xffc5;
-    const XKB_KEY_F9: u32 = 0xffc6;
-    const XKB_KEY_F10: u32 = 0xffc7;
-    const XKB_KEY_F11: u32 = 0xffc8;
-    const XKB_KEY_F12: u32 = 0xffc9;
-    
-    Some(match keysym.raw() {
-        XKB_KEY_Escape => Key::Escape,
-        XKB_KEY_Return | XKB_KEY_KP_Enter => Key::Enter,
-        XKB_KEY_Tab => Key::Tab,
-        XKB_KEY_BackSpace => Key::Backspace,
-        XKB_KEY_Insert => Key::Insert,
-        XKB_KEY_Delete => Key::Delete,
-        XKB_KEY_Home => Key::Home,
-        XKB_KEY_End => Key::End,
-        XKB_KEY_Page_Up => Key::PageUp,
-        XKB_KEY_Page_Down => Key::PageDown,
-        XKB_KEY_Left => Key::ArrowLeft,
-        XKB_KEY_Right => Key::ArrowRight,
-        XKB_KEY_Up => Key::ArrowUp,
-        XKB_KEY_Down => Key::ArrowDown,
+    Some(match keysym {
+        Keysym::Escape => Key::Escape,
+        Keysym::Return | Keysym::KP_Enter => Key::Enter,
+        Keysym::Tab => Key::Tab,
+        Keysym::BackSpace => Key::Backspace,
+        Keysym::Insert => Key::Insert,
+        Keysym::Delete => Key::Delete,
+        Keysym::Home => Key::Home,
+        Keysym::End => Key::End,
+        Keysym::Page_Up => Key::PageUp,
+        Keysym::Page_Down => Key::PageDown,
+        Keysym::Left => Key::ArrowLeft,
+        Keysym::Right => Key::ArrowRight,
+        Keysym::Up => Key::ArrowUp,
+        Keysym::Down => Key::ArrowDown,
         
-        XKB_KEY_space => Key::Space,
+        Keysym::space => Key::Space,
         
-        // Letters (lowercase)
-        XKB_KEY_a => Key::A,
-        XKB_KEY_b => Key::B,
-        XKB_KEY_c => Key::C,
-        XKB_KEY_d => Key::D,
-        XKB_KEY_e => Key::E,
-        XKB_KEY_f => Key::F,
-        XKB_KEY_g => Key::G,
-        XKB_KEY_h => Key::H,
-        XKB_KEY_i => Key::I,
-        XKB_KEY_j => Key::J,
-        XKB_KEY_k => Key::K,
-        XKB_KEY_l => Key::L,
-        XKB_KEY_m => Key::M,
-        XKB_KEY_n => Key::N,
-        XKB_KEY_o => Key::O,
-        XKB_KEY_p => Key::P,
-        XKB_KEY_q => Key::Q,
-        XKB_KEY_r => Key::R,
-        XKB_KEY_s => Key::S,
-        XKB_KEY_t => Key::T,
-        XKB_KEY_u => Key::U,
-        XKB_KEY_v => Key::V,
-        XKB_KEY_w => Key::W,
-        XKB_KEY_x => Key::X,
-        XKB_KEY_y => Key::Y,
-        XKB_KEY_z => Key::Z,
+        // Letters
+        Keysym::a => Key::A,
+        Keysym::b => Key::B,
+        Keysym::c => Key::C,
+        Keysym::d => Key::D,
+        Keysym::e => Key::E,
+        Keysym::f => Key::F,
+        Keysym::g => Key::G,
+        Keysym::h => Key::H,
+        Keysym::i => Key::I,
+        Keysym::j => Key::J,
+        Keysym::k => Key::K,
+        Keysym::l => Key::L,
+        Keysym::m => Key::M,
+        Keysym::n => Key::N,
+        Keysym::o => Key::O,
+        Keysym::p => Key::P,
+        Keysym::q => Key::Q,
+        Keysym::r => Key::R,
+        Keysym::s => Key::S,
+        Keysym::t => Key::T,
+        Keysym::u => Key::U,
+        Keysym::v => Key::V,
+        Keysym::w => Key::W,
+        Keysym::x => Key::X,
+        Keysym::y => Key::Y,
+        Keysym::z => Key::Z,
         
         // Numbers
-        XKB_KEY_0 => Key::Num0,
-        XKB_KEY_1 => Key::Num1,
-        XKB_KEY_2 => Key::Num2,
-        XKB_KEY_3 => Key::Num3,
-        XKB_KEY_4 => Key::Num4,
-        XKB_KEY_5 => Key::Num5,
-        XKB_KEY_6 => Key::Num6,
-        XKB_KEY_7 => Key::Num7,
-        XKB_KEY_8 => Key::Num8,
-        XKB_KEY_9 => Key::Num9,
+        Keysym::_0 => Key::Num0,
+        Keysym::_1 => Key::Num1,
+        Keysym::_2 => Key::Num2,
+        Keysym::_3 => Key::Num3,
+        Keysym::_4 => Key::Num4,
+        Keysym::_5 => Key::Num5,
+        Keysym::_6 => Key::Num6,
+        Keysym::_7 => Key::Num7,
+        Keysym::_8 => Key::Num8,
+        Keysym::_9 => Key::Num9,
         
         // Function keys
-        XKB_KEY_F1 => Key::F1,
-        XKB_KEY_F2 => Key::F2,
-        XKB_KEY_F3 => Key::F3,
-        XKB_KEY_F4 => Key::F4,
-        XKB_KEY_F5 => Key::F5,
-        XKB_KEY_F6 => Key::F6,
-        XKB_KEY_F7 => Key::F7,
-        XKB_KEY_F8 => Key::F8,
-        XKB_KEY_F9 => Key::F9,
-        XKB_KEY_F10 => Key::F10,
-        XKB_KEY_F11 => Key::F11,
-        XKB_KEY_F12 => Key::F12,
+        Keysym::F1 => Key::F1,
+        Keysym::F2 => Key::F2,
+        Keysym::F3 => Key::F3,
+        Keysym::F4 => Key::F4,
+        Keysym::F5 => Key::F5,
+        Keysym::F6 => Key::F6,
+        Keysym::F7 => Key::F7,
+        Keysym::F8 => Key::F8,
+        Keysym::F9 => Key::F9,
+        Keysym::F10 => Key::F10,
+        Keysym::F11 => Key::F11,
+        Keysym::F12 => Key::F12,
         
         _ => return None,
     })
