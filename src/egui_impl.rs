@@ -134,9 +134,7 @@ impl<A: EguiAppData> EguiSurfaceState<A> {
         let platform_output = self.render();
 
         // Handle cursor icon changes from EGUI
-        let app = get_app();
-        let cursor_shape = egui_to_cursor_shape(platform_output.cursor_icon);
-        app.set_cursor(cursor_shape);
+        get_app().set_cursor(egui_to_cursor_shape(platform_output.cursor_icon));
     }
 
     fn handle_keyboard_enter(&mut self) {
