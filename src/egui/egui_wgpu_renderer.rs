@@ -1,5 +1,8 @@
 // Original for Winit:
 // https://github.com/kaphula/winit-egui-wgpu-template/blob/master/src/egui_tools.rs
+//
+// MIT License
+// Copyright (c) 2024 Valtteri Vallius
 
 use egui::Context;
 use egui_wgpu::Renderer;
