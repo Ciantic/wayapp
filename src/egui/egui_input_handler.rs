@@ -1,7 +1,15 @@
-use egui::{Event, Key, Modifiers, PointerButton, Pos2, RawInput};
+use egui::Event;
+use egui::Key;
+use egui::Modifiers;
+use egui::PointerButton;
+use egui::Pos2;
+use egui::RawInput;
 use log::trace;
-use smithay_client_toolkit::seat::keyboard::{KeyEvent, Keysym, Modifiers as WaylandModifiers};
-use smithay_client_toolkit::seat::pointer::{PointerEvent, PointerEventKind};
+use smithay_client_toolkit::seat::keyboard::KeyEvent;
+use smithay_client_toolkit::seat::keyboard::Keysym;
+use smithay_client_toolkit::seat::keyboard::Modifiers as WaylandModifiers;
+use smithay_client_toolkit::seat::pointer::PointerEvent;
+use smithay_client_toolkit::seat::pointer::PointerEventKind;
 use smithay_clipboard::Clipboard;
 use std::time::Instant;
 
@@ -103,7 +111,8 @@ impl WaylandToEguiInput {
 
     pub fn handle_keyboard_enter(&mut self) {
         trace!("[INPUT] Keyboard focus entered surface");
-        // This is strictly not the same thing, but Wayland can't know for instance if layer surface has focus or not, but it knows keyboard focus is on the surface
+        // This is strictly not the same thing, but Wayland can't know for instance if
+        // layer surface has focus or not, but it knows keyboard focus is on the surface
         self.events.push(Event::WindowFocused(true));
     }
 
@@ -114,7 +123,8 @@ impl WaylandToEguiInput {
 
     pub fn handle_keyboard_event(&mut self, event: &KeyEvent, pressed: bool, is_repeat: bool) {
         trace!(
-            "[INPUT] Keyboard event - keysym: {:?}, raw_code: {}, pressed: {}, repeat: {}, utf8: {:?}",
+            "[INPUT] Keyboard event - keysym: {:?}, raw_code: {}, pressed: {}, repeat: {}, utf8: \
+             {:?}",
             event.keysym.raw(),
             event.raw_code,
             pressed,

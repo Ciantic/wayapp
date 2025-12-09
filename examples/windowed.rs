@@ -2,45 +2,59 @@
 //
 // This is old example that doesn't use the Application wrapper
 
-use egui::{CentralPanel, Context};
-use egui_smithay::*;
-
 use crate::EguiWgpuRenderer;
 use crate::WaylandToEguiInput;
+use egui::CentralPanel;
+use egui::Context;
+use egui_smithay::*;
 use log::trace;
-use raw_window_handle::{
-    RawDisplayHandle, RawWindowHandle, WaylandDisplayHandle, WaylandWindowHandle,
-};
-use smithay_client_toolkit::{
-    compositor::{CompositorHandler, CompositorState},
-    delegate_compositor, delegate_keyboard, delegate_output, delegate_pointer, delegate_registry,
-    delegate_seat, delegate_shm, delegate_xdg_shell, delegate_xdg_window,
-    output::{OutputHandler, OutputState},
-    registry::{ProvidesRegistryState, RegistryState},
-    registry_handlers,
-    seat::{
-        Capability, SeatHandler, SeatState,
-        keyboard::{KeyEvent, KeyboardHandler},
-        pointer::{
-            CursorIcon as WaylandCursorIcon, PointerEvent, PointerHandler, ThemeSpec, ThemedPointer,
-        },
-    },
-    shell::{
-        WaylandSurface,
-        xdg::{
-            XdgShell,
-            window::{Window, WindowConfigure, WindowDecorations, WindowHandler},
-        },
-    },
-    shm::{Shm, ShmHandler},
-};
+use raw_window_handle::RawDisplayHandle;
+use raw_window_handle::RawWindowHandle;
+use raw_window_handle::WaylandDisplayHandle;
+use raw_window_handle::WaylandWindowHandle;
+use smithay_client_toolkit::compositor::CompositorHandler;
+use smithay_client_toolkit::compositor::CompositorState;
+use smithay_client_toolkit::delegate_compositor;
+use smithay_client_toolkit::delegate_keyboard;
+use smithay_client_toolkit::delegate_output;
+use smithay_client_toolkit::delegate_pointer;
+use smithay_client_toolkit::delegate_registry;
+use smithay_client_toolkit::delegate_seat;
+use smithay_client_toolkit::delegate_shm;
+use smithay_client_toolkit::delegate_xdg_shell;
+use smithay_client_toolkit::delegate_xdg_window;
+use smithay_client_toolkit::output::OutputHandler;
+use smithay_client_toolkit::output::OutputState;
+use smithay_client_toolkit::registry::ProvidesRegistryState;
+use smithay_client_toolkit::registry::RegistryState;
+use smithay_client_toolkit::registry_handlers;
+use smithay_client_toolkit::seat::Capability;
+use smithay_client_toolkit::seat::SeatHandler;
+use smithay_client_toolkit::seat::SeatState;
+use smithay_client_toolkit::seat::keyboard::KeyEvent;
+use smithay_client_toolkit::seat::keyboard::KeyboardHandler;
+use smithay_client_toolkit::seat::pointer::CursorIcon as WaylandCursorIcon;
+use smithay_client_toolkit::seat::pointer::PointerEvent;
+use smithay_client_toolkit::seat::pointer::PointerHandler;
+use smithay_client_toolkit::seat::pointer::ThemeSpec;
+use smithay_client_toolkit::seat::pointer::ThemedPointer;
+use smithay_client_toolkit::shell::WaylandSurface;
+use smithay_client_toolkit::shell::xdg::XdgShell;
+use smithay_client_toolkit::shell::xdg::window::Window;
+use smithay_client_toolkit::shell::xdg::window::WindowConfigure;
+use smithay_client_toolkit::shell::xdg::window::WindowDecorations;
+use smithay_client_toolkit::shell::xdg::window::WindowHandler;
+use smithay_client_toolkit::shm::Shm;
+use smithay_client_toolkit::shm::ShmHandler;
 use smithay_clipboard::Clipboard;
 use std::ptr::NonNull;
-use wayland_client::{
-    Connection, Proxy, QueueHandle,
-    globals::registry_queue_init,
-    protocol::{wl_output, wl_seat, wl_surface},
-};
+use wayland_client::Connection;
+use wayland_client::Proxy;
+use wayland_client::QueueHandle;
+use wayland_client::globals::registry_queue_init;
+use wayland_client::protocol::wl_output;
+use wayland_client::protocol::wl_seat;
+use wayland_client::protocol::wl_surface;
 use wgpu::DeviceDescriptor;
 
 struct EguiApp {
@@ -108,7 +122,8 @@ fn main() {
     // Create the window for adapter selection
     let window = xdg_shell_state.create_window(surface, WindowDecorations::ServerDefault, &qh);
     window.set_title("wgpu wayland window");
-    // GitHub does not let projects use the `org.github` domain but the `io.github` domain is fine.
+    // GitHub does not let projects use the `org.github` domain but the `io.github`
+    // domain is fine.
     window.set_app_id("io.github.smithay.client-toolkit.WgpuExample");
     window.set_min_size(Some((256, 256)));
     window.commit();
@@ -262,8 +277,9 @@ impl MainState {
             renderer.begin_frame(raw_input);
             self.egui_app.ui(renderer.context());
 
-            // For Wayland: configure surface at physical resolution, render egui at logical resolution
-            // pixels_per_point tells egui how many physical pixels per logical point
+            // For Wayland: configure surface at physical resolution, render egui at logical
+            // resolution pixels_per_point tells egui how many physical pixels
+            // per logical point
             let screen_descriptor = egui_wgpu::ScreenDescriptor {
                 size_in_pixels: [
                     self.width * self.scale_factor as u32,
@@ -291,7 +307,8 @@ impl MainState {
                 let _ = themed_pointer.set_cursor(conn, cursor_icon);
             }
 
-            // For now, just check if there are any platform commands (indicates interaction)
+            // For now, just check if there are any platform commands (indicates
+            // interaction)
             !platform_output.events.is_empty()
         } else {
             false
@@ -684,8 +701,9 @@ delegate_xdg_window!(MainState);
 delegate_registry!(MainState);
 
 impl ProvidesRegistryState for MainState {
+    registry_handlers![OutputState];
+
     fn registry(&mut self) -> &mut RegistryState {
         &mut self.registry_state
     }
-    registry_handlers![OutputState];
 }

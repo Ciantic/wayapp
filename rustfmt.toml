@@ -1,0 +1,6 @@
+# Works only with cargo +nightly fmt
+format_strings = true
+group_imports = "One"
+imports_granularity = "Item"
+reorder_impl_items = true
+wrap_comments = true

@@ -1,42 +1,32 @@
 ///! Single color buffer example implementations for containers.
 ///!
 ///! Use this as an example to how to start implementing your own containers.
-use std::num::NonZero;
-
+use crate::Application;
+use crate::BaseTrait;
+use crate::CompositorHandlerContainer;
+use crate::KeyboardHandlerContainer;
+use crate::LayerSurfaceContainer;
+use crate::PointerHandlerContainer;
+use crate::PopupContainer;
+use crate::SubsurfaceContainer;
+use crate::WindowContainer;
+use crate::get_app;
 use log::trace;
-use smithay_client_toolkit::{
-    seat::{
-        keyboard::{KeyEvent, Modifiers},
-        pointer::PointerEvent,
-    },
-    shell::{
-        WaylandSurface,
-        wlr_layer::{LayerSurface, LayerSurfaceConfigure},
-        xdg::{
-            popup::{Popup, PopupConfigure},
-            window::{Window, WindowConfigure},
-        },
-    },
-    shm::{
-        Shm,
-        slot::{Buffer, SlotPool},
-    },
-};
-use wayland_client::{
-    QueueHandle,
-    protocol::{wl_shm, wl_surface::WlSurface},
-};
-use wayland_protocols::wp::viewporter::client::wp_viewport::WpViewport;
-
-use crate::{
-    Application, BaseTrait, CompositorHandlerContainer, KeyboardHandlerContainer,
-    LayerSurfaceContainer, PointerHandlerContainer, PopupContainer, SubsurfaceContainer, WAYAPP,
-    WindowContainer, get_app,
-};
+use smithay_client_toolkit::shell::WaylandSurface;
+use smithay_client_toolkit::shell::wlr_layer::LayerSurface;
+use smithay_client_toolkit::shell::wlr_layer::LayerSurfaceConfigure;
+use smithay_client_toolkit::shell::xdg::popup::Popup;
+use smithay_client_toolkit::shell::xdg::popup::PopupConfigure;
+use smithay_client_toolkit::shell::xdg::window::Window;
+use smithay_client_toolkit::shell::xdg::window::WindowConfigure;
+use smithay_client_toolkit::shm::slot::SlotPool;
+use std::num::NonZero;
+use wayland_client::QueueHandle;
+use wayland_client::protocol::wl_shm;
+use wayland_client::protocol::wl_surface::WlSurface;
 
 fn single_color_example_buffer_configure(
     pool: &mut SlotPool,
-    shm_state: &Shm,
     surface: &WlSurface,
     qh: &QueueHandle<Application>,
     new_width: u32,
@@ -106,7 +96,6 @@ impl WindowContainer for ExampleSingleColorWindow {
         // Handle window configuration changes here
         single_color_example_buffer_configure(
             pool,
-            &app.shm_state,
             &self.window.wl_surface().clone(),
             &app.qh,
             width,
@@ -150,7 +139,6 @@ impl LayerSurfaceContainer for ExampleSingleColorLayerSurface {
         // Handle layer surface configuration changes here
         single_color_example_buffer_configure(
             pool,
-            &app.shm_state,
             &self.layer_surface.wl_surface().clone(),
             &app.qh,
             width,
@@ -194,7 +182,6 @@ impl PopupContainer for ExampleSingleColorPopup {
         // Handle popup configuration changes here
         single_color_example_buffer_configure(
             pool,
-            &app.shm_state,
             &self.popup.wl_surface().clone(),
             &app.qh,
             width,
@@ -234,7 +221,6 @@ impl SubsurfaceContainer for ExampleSingleColorSubsurface {
         // Handle subsurface configuration changes here
         single_color_example_buffer_configure(
             pool,
-            &app.shm_state,
             &self.wl_surface.clone(),
             &app.qh,
             width,

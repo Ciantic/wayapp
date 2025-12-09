@@ -1,33 +1,38 @@
+use crate::Application;
+use crate::BaseTrait;
+use crate::CompositorHandlerContainer;
+use crate::EguiWgpuRenderer;
+use crate::KeyboardHandlerContainer;
+use crate::LayerSurfaceContainer;
+use crate::PointerHandlerContainer;
+use crate::PopupContainer;
+use crate::SubsurfaceContainer;
+use crate::WaylandToEguiInput;
+use crate::WindowContainer;
+use crate::get_app;
 use egui::PlatformOutput;
 use log::trace;
 use pollster::block_on;
-use raw_window_handle::{
-    RawDisplayHandle, RawWindowHandle, WaylandDisplayHandle, WaylandWindowHandle,
-};
-use smithay_client_toolkit::{
-    seat::{
-        keyboard::{KeyEvent, Modifiers},
-        pointer::PointerEvent,
-    },
-    shell::{
-        WaylandSurface,
-        wlr_layer::{LayerSurface, LayerSurfaceConfigure},
-        xdg::{
-            popup::{Popup, PopupConfigure},
-            window::{Window, WindowConfigure},
-        },
-    },
-};
+use raw_window_handle::RawDisplayHandle;
+use raw_window_handle::RawWindowHandle;
+use raw_window_handle::WaylandDisplayHandle;
+use raw_window_handle::WaylandWindowHandle;
+use smithay_client_toolkit::seat::keyboard::KeyEvent;
+use smithay_client_toolkit::seat::keyboard::Modifiers;
+use smithay_client_toolkit::seat::pointer::PointerEvent;
+use smithay_client_toolkit::shell::WaylandSurface;
+use smithay_client_toolkit::shell::wlr_layer::LayerSurface;
+use smithay_client_toolkit::shell::wlr_layer::LayerSurfaceConfigure;
+use smithay_client_toolkit::shell::xdg::popup::Popup;
+use smithay_client_toolkit::shell::xdg::popup::PopupConfigure;
+use smithay_client_toolkit::shell::xdg::window::Window;
+use smithay_client_toolkit::shell::xdg::window::WindowConfigure;
 use smithay_clipboard::Clipboard;
 use std::ptr::NonNull;
-use wayland_client::{Proxy, QueueHandle, protocol::wl_surface::WlSurface};
+use wayland_client::Proxy;
+use wayland_client::QueueHandle;
+use wayland_client::protocol::wl_surface::WlSurface;
 use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::Shape;
-
-use crate::{
-    Application, BaseTrait, CompositorHandlerContainer, EguiWgpuRenderer, KeyboardHandlerContainer,
-    LayerSurfaceContainer, PointerHandlerContainer, PopupContainer, SubsurfaceContainer,
-    WaylandToEguiInput, WindowContainer, get_app,
-};
 
 pub trait EguiAppData {
     fn ui(&mut self, ctx: &egui::Context);
@@ -284,6 +289,7 @@ impl<A: EguiAppData> KeyboardHandlerContainer for EguiWindow<A> {
     fn enter(&mut self) {
         self.surface.handle_keyboard_enter();
     }
+
     fn leave(&mut self) {
         self.surface.handle_keyboard_leave();
     }

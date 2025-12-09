@@ -1,47 +1,70 @@
-use std::{cell::RefCell, collections::HashMap, mem::MaybeUninit, rc::Rc};
-
+use crate::LayerSurfaceContainer;
+use crate::PopupContainer;
+use crate::SubsurfaceContainer;
+use crate::WindowContainer;
 use log::trace;
-use smithay_client_toolkit::{
-    compositor::{CompositorHandler, CompositorState},
-    delegate_compositor, delegate_keyboard, delegate_layer, delegate_output, delegate_pointer,
-    delegate_registry, delegate_seat, delegate_shm, delegate_subcompositor, delegate_xdg_popup,
-    delegate_xdg_shell, delegate_xdg_window,
-    output::{OutputHandler, OutputState},
-    registry::{ProvidesRegistryState, RegistryState},
-    registry_handlers,
-    seat::{
-        Capability, SeatHandler, SeatState,
-        keyboard::{KeyEvent, KeyboardHandler, Keysym},
-        pointer::{
-            PointerEvent, PointerEventKind, PointerHandler, cursor_shape::CursorShapeManager,
-        },
-    },
-    shell::{
-        WaylandSurface,
-        wlr_layer::{LayerShell, LayerShellHandler, LayerSurface, LayerSurfaceConfigure},
-        xdg::{
-            XdgShell,
-            popup::{Popup, PopupConfigure, PopupHandler},
-            window::{Window, WindowConfigure, WindowHandler},
-        },
-    },
-    shm::{Shm, ShmHandler},
-    subcompositor::SubcompositorState,
-};
+use smithay_client_toolkit::compositor::CompositorHandler;
+use smithay_client_toolkit::compositor::CompositorState;
+use smithay_client_toolkit::delegate_compositor;
+use smithay_client_toolkit::delegate_keyboard;
+use smithay_client_toolkit::delegate_layer;
+use smithay_client_toolkit::delegate_output;
+use smithay_client_toolkit::delegate_pointer;
+use smithay_client_toolkit::delegate_registry;
+use smithay_client_toolkit::delegate_seat;
+use smithay_client_toolkit::delegate_shm;
+use smithay_client_toolkit::delegate_subcompositor;
+use smithay_client_toolkit::delegate_xdg_popup;
+use smithay_client_toolkit::delegate_xdg_shell;
+use smithay_client_toolkit::delegate_xdg_window;
+use smithay_client_toolkit::output::OutputHandler;
+use smithay_client_toolkit::output::OutputState;
+use smithay_client_toolkit::registry::ProvidesRegistryState;
+use smithay_client_toolkit::registry::RegistryState;
+use smithay_client_toolkit::registry_handlers;
+use smithay_client_toolkit::seat::Capability;
+use smithay_client_toolkit::seat::SeatHandler;
+use smithay_client_toolkit::seat::SeatState;
+use smithay_client_toolkit::seat::keyboard::KeyEvent;
+use smithay_client_toolkit::seat::keyboard::KeyboardHandler;
+use smithay_client_toolkit::seat::keyboard::Keysym;
+use smithay_client_toolkit::seat::pointer::PointerEvent;
+use smithay_client_toolkit::seat::pointer::PointerEventKind;
+use smithay_client_toolkit::seat::pointer::PointerHandler;
+use smithay_client_toolkit::seat::pointer::cursor_shape::CursorShapeManager;
+use smithay_client_toolkit::shell::WaylandSurface;
+use smithay_client_toolkit::shell::wlr_layer::LayerShell;
+use smithay_client_toolkit::shell::wlr_layer::LayerShellHandler;
+use smithay_client_toolkit::shell::wlr_layer::LayerSurface;
+use smithay_client_toolkit::shell::wlr_layer::LayerSurfaceConfigure;
+use smithay_client_toolkit::shell::xdg::XdgShell;
+use smithay_client_toolkit::shell::xdg::popup::Popup;
+use smithay_client_toolkit::shell::xdg::popup::PopupConfigure;
+use smithay_client_toolkit::shell::xdg::popup::PopupHandler;
+use smithay_client_toolkit::shell::xdg::window::Window;
+use smithay_client_toolkit::shell::xdg::window::WindowConfigure;
+use smithay_client_toolkit::shell::xdg::window::WindowHandler;
+use smithay_client_toolkit::shm::Shm;
+use smithay_client_toolkit::shm::ShmHandler;
+use smithay_client_toolkit::subcompositor::SubcompositorState;
 use smithay_clipboard::Clipboard;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::mem::MaybeUninit;
+use std::rc::Rc;
 use wayland_backend::client::ObjectId;
-use wayland_client::{
-    Connection, EventQueue, Proxy, QueueHandle,
-    globals::registry_queue_init,
-    protocol::{
-        wl_keyboard::WlKeyboard, wl_output, wl_pointer::WlPointer, wl_seat, wl_surface::WlSurface,
-    },
-};
-use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::{
-    Shape, WpCursorShapeDeviceV1,
-};
-
-use crate::{LayerSurfaceContainer, PopupContainer, SubsurfaceContainer, WindowContainer};
+use wayland_client::Connection;
+use wayland_client::EventQueue;
+use wayland_client::Proxy;
+use wayland_client::QueueHandle;
+use wayland_client::globals::registry_queue_init;
+use wayland_client::protocol::wl_keyboard::WlKeyboard;
+use wayland_client::protocol::wl_output;
+use wayland_client::protocol::wl_pointer::WlPointer;
+use wayland_client::protocol::wl_seat;
+use wayland_client::protocol::wl_surface::WlSurface;
+use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::Shape;
+use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::WpCursorShapeDeviceV1;
 
 /// Enum representing the kind of surface container stored in the application
 pub enum Kind {
@@ -95,7 +118,9 @@ pub struct Application {
 
     cursor_shape_manager: CursorShapeManager,
 
-    /// For cursor set_shape to work serial parameter must match the latest wl_pointer.enter or zwp_tablet_tool_v2.proximity_in serial number sent to the client.
+    /// For cursor set_shape to work serial parameter must match the latest
+    /// wl_pointer.enter or zwp_tablet_tool_v2.proximity_in serial number sent
+    /// to the client.
     last_pointer_enter_serial: Option<u32>,
     last_pointer: Option<WlPointer>,
     // Cache cursor shape devices per pointer to avoid repeated protocol calls
@@ -182,29 +207,6 @@ impl Application {
             device.set_shape(serial, shape);
         }
     }
-
-    // fn find_window_by_surface(&self, surface: &WlSurface) -> Option<Weak<Window>> {
-    //     for win in &self.windows {
-    //         if let Some(strong_win) = win.upgrade() {
-    //             if strong_win.wl_surface().id().as_ptr() == surface.id().as_ptr() {
-    //                 return Some(Rc::downgrade(&strong_win));
-    //             }
-    //         }
-    //     }
-    //     None
-    // }
-
-    // fn find_layer_by_surface(&self, surface: &WlSurface) -> Option<Weak<LayerSurface>> {
-    //     for layer in &self.layer_surfaces {
-    //         if let Some(strong_layer) = layer.upgrade() {
-
-    //             if strong_layer.wl_surface().id().as_ptr() == surface.id().as_ptr() {
-    //                 return Some(Rc::downgrade(&strong_layer));
-    //             }
-    //         }
-    //     }
-    //     None
-    // }
 
     /// Push a window container to the application
     pub fn push_window<W: WindowContainer + 'static>(&mut self, window: W) {
@@ -825,10 +827,11 @@ impl ShmHandler for Application {
 }
 
 impl ProvidesRegistryState for Application {
+    registry_handlers![OutputState];
+
     fn registry(&mut self) -> &mut RegistryState {
         &mut self.registry_state
     }
-    registry_handlers![OutputState];
 }
 
 delegate_compositor!(Application);

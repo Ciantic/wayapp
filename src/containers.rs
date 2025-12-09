@@ -1,35 +1,15 @@
-use std::num::NonZero;
-
-use log::trace;
-use smithay_client_toolkit::{
-    seat::{
-        keyboard::{KeyEvent, Modifiers},
-        pointer::PointerEvent,
-    },
-    shell::{
-        WaylandSurface,
-        wlr_layer::{LayerSurface, LayerSurfaceConfigure},
-        xdg::{
-            popup::{Popup, PopupConfigure},
-            window::{Window, WindowConfigure},
-        },
-    },
-    shm::{
-        Shm,
-        slot::{Buffer, SlotPool},
-    },
-};
-use wayland_client::{
-    QueueHandle,
-    protocol::{
-        wl_output::{self, Transform, WlOutput},
-        wl_shm,
-        wl_surface::WlSurface,
-    },
-};
-use wayland_protocols::wp::viewporter::client::wp_viewport::WpViewport;
-
-use crate::Application;
+use smithay_client_toolkit::seat::keyboard::KeyEvent;
+use smithay_client_toolkit::seat::keyboard::Modifiers;
+use smithay_client_toolkit::seat::pointer::PointerEvent;
+use smithay_client_toolkit::shell::wlr_layer::LayerSurface;
+use smithay_client_toolkit::shell::wlr_layer::LayerSurfaceConfigure;
+use smithay_client_toolkit::shell::xdg::popup::Popup;
+use smithay_client_toolkit::shell::xdg::popup::PopupConfigure;
+use smithay_client_toolkit::shell::xdg::window::Window;
+use smithay_client_toolkit::shell::xdg::window::WindowConfigure;
+use wayland_client::protocol::wl_output::Transform;
+use wayland_client::protocol::wl_output::WlOutput;
+use wayland_client::protocol::wl_surface::WlSurface;
 
 pub trait KeyboardHandlerContainer {
     fn enter(&mut self) {}

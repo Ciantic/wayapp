@@ -2,8 +2,16 @@
 // https://github.com/kaphula/winit-egui-wgpu-template/blob/master/src/egui_tools.rs
 
 use egui::Context;
-use egui_wgpu::wgpu::{CommandEncoder, Device, Queue, StoreOp, TextureFormat, TextureView};
-use egui_wgpu::{Renderer, RendererOptions, ScreenDescriptor, wgpu};
+use egui_wgpu::Renderer;
+use egui_wgpu::RendererOptions;
+use egui_wgpu::ScreenDescriptor;
+use egui_wgpu::wgpu;
+use egui_wgpu::wgpu::CommandEncoder;
+use egui_wgpu::wgpu::Device;
+use egui_wgpu::wgpu::Queue;
+use egui_wgpu::wgpu::StoreOp;
+use egui_wgpu::wgpu::TextureFormat;
+use egui_wgpu::wgpu::TextureView;
 
 pub struct EguiWgpuRenderer {
     context: Context,

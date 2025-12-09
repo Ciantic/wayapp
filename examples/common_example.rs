@@ -1,12 +1,12 @@
-use log::trace;
-
 use egui_smithay::*;
-
-use smithay_client_toolkit::shell::{
-    WaylandSurface,
-    wlr_layer::{Anchor, Layer},
-    xdg::{XdgPositioner, XdgSurface, popup::Popup, window::WindowDecorations},
-};
+use log::trace;
+use smithay_client_toolkit::shell::WaylandSurface;
+use smithay_client_toolkit::shell::wlr_layer::Anchor;
+use smithay_client_toolkit::shell::wlr_layer::Layer;
+use smithay_client_toolkit::shell::xdg::XdgPositioner;
+use smithay_client_toolkit::shell::xdg::XdgSurface;
+use smithay_client_toolkit::shell::xdg::popup::Popup;
+use smithay_client_toolkit::shell::xdg::window::WindowDecorations;
 use wayland_client::Proxy;
 
 fn main() {
