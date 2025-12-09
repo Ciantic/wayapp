@@ -1,6 +1,6 @@
 use egui::{CentralPanel, Context};
 use egui_smithay::{EguiAppData, EguiLayerSurface, EguiWindow, get_init_app};
-use smithay_client_toolkit::shell::{WaylandSurface, wlr_layer::{Anchor, Layer}, xdg::window::WindowDecorations};
+use smithay_client_toolkit::shell::{WaylandSurface, wlr_layer::{Anchor, KeyboardInteractivity, Layer}, xdg::window::WindowDecorations};
 
 struct EguiApp {
     counter: i32,
@@ -72,7 +72,7 @@ fn main() {
         Some("Example2"),
         None,
     );
-    layer_surface.set_keyboard_interactivity(smithay_client_toolkit::shell::wlr_layer::KeyboardInteractivity::Exclusive);
+    layer_surface.set_keyboard_interactivity(KeyboardInteractivity::Exclusive);
     layer_surface.set_anchor(Anchor::BOTTOM | Anchor::LEFT);
     layer_surface.set_margin(0, 0, 20, 20);
     layer_surface.set_size(256, 256);
