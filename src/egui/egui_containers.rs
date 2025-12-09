@@ -24,9 +24,9 @@ use wayland_client::{Proxy, QueueHandle, protocol::wl_surface::WlSurface};
 use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::Shape;
 
 use crate::{
-    Application, BaseTrait, CompositorHandlerContainer, EguiRenderer, InputState,
-    KeyboardHandlerContainer, LayerSurfaceContainer, PointerHandlerContainer, PopupContainer,
-    SubsurfaceContainer, WindowContainer, get_app,
+    Application, BaseTrait, CompositorHandlerContainer, EguiWgpuRenderer, KeyboardHandlerContainer,
+    LayerSurfaceContainer, PointerHandlerContainer, PopupContainer, SubsurfaceContainer,
+    WaylandToEguiInput, WindowContainer, get_app,
 };
 
 pub trait EguiAppData {
@@ -40,9 +40,9 @@ struct EguiSurfaceState<A: EguiAppData> {
     adapter: wgpu::Adapter,
     device: wgpu::Device,
     queue: wgpu::Queue,
-    renderer: EguiRenderer,
+    renderer: EguiWgpuRenderer,
     egui_app: A,
-    input_state: InputState,
+    input_state: WaylandToEguiInput,
     queue_handle: QueueHandle<Application>,
     width: u32,
     height: u32,
@@ -94,9 +94,9 @@ impl<A: EguiAppData> EguiSurfaceState<A> {
             .get(0)
             .unwrap_or(&wgpu::TextureFormat::Bgra8Unorm);
 
-        let renderer = EguiRenderer::new(&device, output_format, None, 1);
+        let renderer = EguiWgpuRenderer::new(&device, output_format, None, 1);
         let clipboard = unsafe { Clipboard::new(app.conn.display().id().as_ptr() as *mut _) };
-        let input_state = InputState::new(clipboard);
+        let input_state = WaylandToEguiInput::new(clipboard);
 
         Self {
             wl_surface,

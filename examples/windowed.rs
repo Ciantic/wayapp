@@ -1,10 +1,12 @@
 // Original here: https://github.com/Smithay/client-toolkit/blob/master/examples/wgpu.rs
+//
+// This is old example that doesn't use the Application wrapper
 
 use egui::{CentralPanel, Context};
 use egui_smithay::*;
 
-use crate::egui_renderer::EguiRenderer;
-use crate::input_handler::InputState;
+use crate::EguiWgpuRenderer;
+use crate::WaylandToEguiInput;
 use log::trace;
 use raw_window_handle::{
     RawDisplayHandle, RawWindowHandle, WaylandDisplayHandle, WaylandWindowHandle,
@@ -170,7 +172,7 @@ fn main() {
 
         egui_renderer: None,
         egui_app: EguiApp::new(),
-        input_state: InputState::new(clipboard),
+        input_state: WaylandToEguiInput::new(clipboard),
         themed_pointer: None,
     };
 
@@ -206,9 +208,9 @@ struct MainState {
     queue: wgpu::Queue,
     surface: wgpu::Surface<'static>,
 
-    egui_renderer: Option<EguiRenderer>,
+    egui_renderer: Option<EguiWgpuRenderer>,
     egui_app: EguiApp,
-    input_state: InputState,
+    input_state: WaylandToEguiInput,
     themed_pointer: Option<ThemedPointer>,
 }
 
@@ -443,7 +445,12 @@ impl WindowHandler for MainState {
 
         // Initialize EGUI renderer if not already done
         if self.egui_renderer.is_none() {
-            self.egui_renderer = Some(EguiRenderer::new(device, surface_config.format, None, 1));
+            self.egui_renderer = Some(EguiWgpuRenderer::new(
+                device,
+                surface_config.format,
+                None,
+                1,
+            ));
         }
 
         // Render the frame

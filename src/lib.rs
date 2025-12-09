@@ -1,16 +1,9 @@
-pub mod egui_renderer;
-pub use egui_renderer::EguiRenderer;
-
-pub mod input_handler;
-pub use input_handler::InputState;
-
-pub mod common;
-pub mod common_window;
-pub use common::*;
-pub use common_window::*;
-
+mod application;
+mod containers;
+mod egui;
 mod single_color;
-pub use single_color::*;
 
-mod egui_impl;
-pub use egui_impl::*;
+pub use application::*;
+pub use containers::*;
+pub use egui::*;
+pub use single_color::*;

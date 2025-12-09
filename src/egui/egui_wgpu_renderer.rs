@@ -5,13 +5,13 @@ use egui::Context;
 use egui_wgpu::wgpu::{CommandEncoder, Device, Queue, StoreOp, TextureFormat, TextureView};
 use egui_wgpu::{Renderer, RendererOptions, ScreenDescriptor, wgpu};
 
-pub struct EguiRenderer {
+pub struct EguiWgpuRenderer {
     context: Context,
     renderer: Renderer,
     frame_started: bool,
 }
 
-impl EguiRenderer {
+impl EguiWgpuRenderer {
     pub fn context(&self) -> &Context {
         &self.context
     }
@@ -25,7 +25,7 @@ impl EguiRenderer {
         output_color_format: TextureFormat,
         output_depth_format: Option<TextureFormat>,
         msaa_samples: u32,
-    ) -> EguiRenderer {
+    ) -> EguiWgpuRenderer {
         let egui_context = Context::default();
 
         let egui_renderer = Renderer::new(
@@ -39,7 +39,7 @@ impl EguiRenderer {
             },
         );
 
-        EguiRenderer {
+        EguiWgpuRenderer {
             context: egui_context,
             renderer: egui_renderer,
             frame_started: false,

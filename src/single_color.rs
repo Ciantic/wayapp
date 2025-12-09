@@ -1,3 +1,6 @@
+///! Single color buffer example implementations for containers.
+///!
+///! Use this as an example to how to start implementing your own containers.
 use std::num::NonZero;
 
 use log::trace;

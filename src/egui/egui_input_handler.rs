@@ -6,7 +6,7 @@ use smithay_clipboard::Clipboard;
 use std::time::Instant;
 
 /// Handles input events from Wayland and converts them to EGUI RawInput
-pub struct InputState {
+pub struct WaylandToEguiInput {
     modifiers: Modifiers,
     pointer_pos: Pos2,
     events: Vec<Event>,
@@ -18,7 +18,7 @@ pub struct InputState {
     last_key_utf8: Option<String>,
 }
 
-impl InputState {
+impl WaylandToEguiInput {
     pub fn new(clipboard: Clipboard) -> Self {
         Self {
             modifiers: Modifiers::default(),
