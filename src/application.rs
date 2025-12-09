@@ -252,6 +252,7 @@ impl Application {
     }
 
     /// Remove a layer surface by its LayerSurface reference
+    #[allow(dead_code)]
     fn remove_layer_surface(&mut self, layer_surface: &LayerSurface) {
         let surface_id = layer_surface.wl_surface().id();
         self.layer_surfaces
@@ -260,6 +261,7 @@ impl Application {
     }
 
     /// Remove a popup by its Popup reference
+    #[allow(dead_code)]
     fn remove_popup(&mut self, popup: &Popup) {
         let surface_id = popup.wl_surface().id();
         self.popups
@@ -268,6 +270,7 @@ impl Application {
     }
 
     /// Remove a subsurface by its WlSurface reference
+    #[allow(dead_code)]
     fn remove_subsurface(&mut self, subsurface: &WlSurface) {
         let surface_id = subsurface.id();
         self.subsurfaces
@@ -560,7 +563,7 @@ impl PointerHandler for Application {
     fn pointer_frame(
         &mut self,
         _conn: &Connection,
-        qh: &QueueHandle<Self>,
+        _qh: &QueueHandle<Self>,
         pointer: &WlPointer,
         events: &[PointerEvent],
     ) {

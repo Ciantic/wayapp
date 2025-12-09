@@ -40,9 +40,9 @@ pub trait EguiAppData {
 
 struct EguiSurfaceState<A: EguiAppData> {
     wl_surface: WlSurface,
-    instance: wgpu::Instance,
+    // instance: wgpu::Instance, // docs says it doesn't need to be kept alive
     surface: wgpu::Surface<'static>,
-    adapter: wgpu::Adapter,
+    // adapter: wgpu::Adapter, // docs says it doesn't need to be kept alive
     device: wgpu::Device,
     queue: wgpu::Queue,
     renderer: EguiWgpuRenderer,
@@ -105,9 +105,9 @@ impl<A: EguiAppData> EguiSurfaceState<A> {
 
         Self {
             wl_surface,
-            instance,
+            // instance,
             surface,
-            adapter,
+            // adapter,
             device,
             queue,
             renderer,

@@ -1,3 +1,5 @@
+#![allow(unused_variables)]
+
 use smithay_client_toolkit::seat::keyboard::KeyEvent;
 use smithay_client_toolkit::seat::keyboard::Modifiers;
 use smithay_client_toolkit::seat::pointer::PointerEvent;
