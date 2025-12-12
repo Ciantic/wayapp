@@ -15,7 +15,9 @@ use iced::Pixels;
 use iced::Size;
 use iced::Theme;
 use iced::mouse;
+use iced_core::Event;
 use iced_core::renderer::Style;
+use iced_core::window::Event::RedrawRequested;
 use iced_graphics::Viewport;
 use iced_renderer::Renderer;
 use iced_runtime::user_interface;
@@ -153,10 +155,6 @@ impl<A: IcedAppData> IcedSurfaceState<A> {
         self.input_state.set_screen_size(self.width, self.height);
         self.reconfigure_surface();
         self.render();
-        // Request initial frame callback to start rendering loop
-        // self.wl_surface
-        //     .frame(&self.queue_handle, self.wl_surface.clone());
-        // self.wl_surface.commit();
     }
 
     fn frame(&mut self, _time: u32) {
@@ -165,28 +163,28 @@ impl<A: IcedAppData> IcedSurfaceState<A> {
 
     fn handle_pointer_event(&mut self, event: &PointerEvent) {
         self.input_state.handle_pointer_event(event);
-        self.render();
+        self.request_next_frame();
     }
 
     fn handle_keyboard_enter(&mut self) {
         self.input_state.handle_keyboard_enter();
-        self.render();
+        self.request_next_frame();
     }
 
     fn handle_keyboard_leave(&mut self) {
         self.input_state.handle_keyboard_leave();
-        self.render();
+        self.request_next_frame();
     }
 
     fn handle_keyboard_event(&mut self, event: &KeyEvent, pressed: bool, repeat: bool) {
         self.input_state
             .handle_keyboard_event(event, pressed, repeat);
-        self.render();
+        self.request_next_frame();
     }
 
     fn update_modifiers(&mut self, modifiers: &Modifiers) {
         self.input_state.update_modifiers(modifiers);
-        self.render();
+        self.request_next_frame();
     }
 
     fn scale_factor_changed(&mut self, new_factor: i32) {
@@ -197,7 +195,7 @@ impl<A: IcedAppData> IcedSurfaceState<A> {
         }
         self.scale_factor = factor;
         self.reconfigure_surface();
-        self.render();
+        self.request_next_frame();
     }
 
     fn render(&mut self) {
@@ -212,16 +210,16 @@ impl<A: IcedAppData> IcedSurfaceState<A> {
             .create_view(&wgpu::TextureViewDescriptor::default());
 
         let viewport = self.create_viewport();
-        let (events, had_input_events) = self.collect_events();
+        let events = self.input_state.take_events();
         let cursor = self.get_cursor_position();
 
         // Update: Process events and messages, then draw
-        self.update_and_draw(&viewport, events, cursor);
+        self.update_and_draw(&viewport, &events, cursor);
 
         // Present the rendered frame
         self.present_frame(&viewport, &texture_view, surface_texture);
 
-        if had_input_events {
+        if !events.is_empty() {
             self.request_next_frame();
         }
     }
@@ -235,18 +233,6 @@ impl<A: IcedAppData> IcedSurfaceState<A> {
         )
     }
 
-    fn collect_events(&mut self) -> (Vec<iced_core::Event>, bool) {
-        let mut events = self.input_state.take_events();
-        let had_input_events = !events.is_empty();
-
-        // Add RedrawRequested event so widgets can update their status
-        events.push(iced_core::Event::Window(
-            iced_core::window::Event::RedrawRequested(std::time::Instant::now()),
-        ));
-
-        (events, had_input_events)
-    }
-
     fn get_cursor_position(&self) -> mouse::Cursor {
         mouse::Cursor::Available(iced::Point::new(
             self.input_state.get_pointer_position().0 as f32,
@@ -254,12 +240,7 @@ impl<A: IcedAppData> IcedSurfaceState<A> {
         ))
     }
 
-    fn update_and_draw(
-        &mut self,
-        viewport: &Viewport,
-        events: Vec<iced_core::Event>,
-        cursor: mouse::Cursor,
-    ) {
+    fn update_and_draw(&mut self, viewport: &Viewport, events: &[Event], cursor: mouse::Cursor) {
         // Build user interface (View)
         let mut user_interface = user_interface::UserInterface::build(
             self.iced_app.view(),
@@ -268,7 +249,7 @@ impl<A: IcedAppData> IcedSurfaceState<A> {
             &mut self.renderer,
         );
 
-        // Update with events and collect messages
+        // First pass: Update with input events and collect messages
         let mut messages = Vec::new();
         let (ui_state, _) = user_interface.update(
             &events,
@@ -294,7 +275,13 @@ impl<A: IcedAppData> IcedSurfaceState<A> {
         let has_messages = !messages.is_empty();
 
         if !has_messages {
-            // No state changes - draw the UI with event-updated widget states
+            user_interface.update(
+                &[Event::Window(RedrawRequested(std::time::Instant::now()))],
+                cursor,
+                &mut self.renderer,
+                &mut iced_core::clipboard::Null,
+                &mut Vec::new(),
+            );
             user_interface.draw(
                 &mut self.renderer,
                 &Theme::Light,
@@ -321,6 +308,13 @@ impl<A: IcedAppData> IcedSurfaceState<A> {
             );
 
             // Draw the rebuilt UI
+            user_interface.update(
+                &[Event::Window(RedrawRequested(std::time::Instant::now()))],
+                cursor,
+                &mut self.renderer,
+                &mut iced_core::clipboard::Null,
+                &mut Vec::new(), // Discard any messages from this pass
+            );
             user_interface.draw(
                 &mut self.renderer,
                 &Theme::Light,
