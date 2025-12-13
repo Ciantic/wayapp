@@ -3390,6 +3390,7 @@ dependencies = [
  "iced_core",
  "iced_futures",
  "iced_graphics",
+ "iced_program",
  "iced_renderer",
  "iced_runtime",
  "iced_tiny_skia",

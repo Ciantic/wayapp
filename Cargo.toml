@@ -40,6 +40,7 @@ iced_renderer = { version = "0.14.0", optional = true }
 iced_runtime = { version = "0.14.0", optional = true }
 iced_tiny_skia = { version = "0.14.0", optional = true }
 iced_wgpu = { version = "0.14.0", optional = true }
+iced_program = { version = "0.14.0", optional = true }
 
 [dev-dependencies]
 env_logger = "0.11.8"
@@ -56,6 +57,7 @@ iced-wgpu = [
     "dep:iced_runtime",
     "dep:iced_tiny_skia",
     "dep:iced_wgpu",
+    "dep:iced_program",
     "dep:raw-window-handle",
     "dep:wgpu",
 ]
