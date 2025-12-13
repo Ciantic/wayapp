@@ -298,6 +298,8 @@ mod tests {
 
         state.rebuild_ui(&instance_iced, window_id, &mut renderer);
 
+        instance_iced.view(window_id);
+
         state.rebuild_ui(&instance_iced, window_id, &mut renderer);
 
         // Trigger an increment message on the `Instance` and ignore the returned
