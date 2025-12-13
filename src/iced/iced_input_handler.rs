@@ -1,4 +1,5 @@
 use iced::Point;
+use iced::Size;
 use iced::event::Event as IcedEvent;
 use iced::keyboard::Key;
 use iced::keyboard::Location;
@@ -9,6 +10,7 @@ use iced::keyboard::key::NativeCode;
 use iced::keyboard::key::Physical;
 use iced::mouse::Button as IcedMouseButton;
 use iced::mouse::ScrollDelta;
+use iced_core::window;
 use log::trace;
 use smithay_client_toolkit::seat::keyboard::KeyEvent;
 use smithay_client_toolkit::seat::keyboard::Keysym;
@@ -36,7 +38,10 @@ impl WaylandToIcedInput {
         Self {
             modifiers: IcedModifiers::default(),
             pointer_pos: (0.0, 0.0),
-            events: Vec::new(),
+            events: vec![IcedEvent::Window(window::Event::Opened {
+                position: None,
+                size: Size::new(256.0, 256.0),
+            })],
             screen_width: 256,
             screen_height: 256,
             start_time: Instant::now(),
@@ -124,13 +129,13 @@ impl WaylandToIcedInput {
 
     pub fn handle_keyboard_enter(&mut self) {
         trace!("[INPUT] Keyboard focus entered surface");
-        // Iced doesn't have a direct WindowFocused event in the same way
-        // This might be handled differently depending on the application needs
+        self.events.push(IcedEvent::Window(window::Event::Focused));
     }
 
     pub fn handle_keyboard_leave(&mut self) {
         trace!("[INPUT] Keyboard focus left surface");
-        // Similar to above
+        self.events
+            .push(IcedEvent::Window(window::Event::Unfocused));
     }
 
     pub fn handle_keyboard_event(&mut self, event: &KeyEvent, pressed: bool, is_repeat: bool) {
