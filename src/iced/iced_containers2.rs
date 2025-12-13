@@ -65,7 +65,7 @@ where
     default_theme: P::Theme,
     style: theme::Style,
     // renderer: P::Renderer,
-    user_interface: user_interface::UserInterface<'a, P::Message, P::Theme, P::Renderer>,
+    user_interface: Option<user_interface::UserInterface<'a, P::Message, P::Theme, P::Renderer>>,
 }
 
 impl<'a, P: iced_program::Program> IcedSurfaceState2<'a, P>
@@ -106,14 +106,36 @@ where
             theme_mode,
             default_theme,
             style,
-            user_interface,
+            user_interface: Some(user_interface),
         }
+    }
+
+    pub fn rebuild_ui(
+        &mut self,
+        program: &'a iced_program::Instance<P>,
+        window_id: window::Id,
+        renderer: &mut P::Renderer,
+    ) {
+        let new_view = program.view(window_id);
+        let size = self.viewport.logical_size();
+        let cache = self
+            .user_interface
+            .take()
+            .expect("User interface should be present")
+            .into_cache();
+        self.user_interface = Some(user_interface::UserInterface::build(
+            new_view,
+            Size::new(size.width as f32, size.height as f32),
+            cache,
+            renderer,
+        ));
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::get_init_app;
     use iced::Center;
     use iced::widget::Column;
     use iced::widget::button;
@@ -206,7 +228,7 @@ mod tests {
                 state.view().into()
             }
         }
-        let app = get_app();
+        let app = get_init_app();
         let counter = Counter::default();
 
         let wl_surface = app.compositor_state.create_surface(&app.qh);
@@ -266,7 +288,7 @@ mod tests {
         let wgpu_renderer = iced_wgpu::Renderer::new(engine.clone(), Font::DEFAULT, Pixels(16.0));
         let mut renderer = iced_renderer::Renderer::Primary(wgpu_renderer);
 
-        let state = IcedSurfaceState2::new(
+        let mut state = IcedSurfaceState2::new(
             &instance_iced,
             theme::Mode::Light,
             window_id,
@@ -274,9 +296,12 @@ mod tests {
             &mut renderer,
         );
 
+        state.rebuild_ui(&instance_iced, window_id, &mut renderer);
+
+        state.rebuild_ui(&instance_iced, window_id, &mut renderer);
+
         // Trigger an increment message on the `Instance` and ignore the returned
         // `Task`.
-        let _ = instance_iced.update(Message::Increment);
 
         // Call `view` to exercise the rendering path after the update.
         let root = instance_iced.view(window_id);
