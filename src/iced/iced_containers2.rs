@@ -387,7 +387,7 @@ mod tests {
 
         state.rebuild_ui(&instance_iced, window_id, &mut renderer);
 
-        if let Some((state, messages, statuses)) = state.send_events(
+        if let Some((state, _msgs, _statuses)) = state.send_events(
             &[
                 Event::Window(window::Event::Opened {
                     position: None,
@@ -414,7 +414,7 @@ mod tests {
         // Note: Rebuilding here will make the test fail
         // state.rebuild_ui(&instance_iced, window_id, &mut renderer);
 
-        if let Some((state, messages, statuses)) = state.send_events(
+        if let Some((state, _msgs, _statuses)) = state.send_events(
             &[Event::Mouse(mouse::Event::CursorMoved {
                 position: Point::new(81.0, 45.0),
             })],
@@ -448,7 +448,7 @@ mod tests {
 
         state.rebuild_ui(window_id);
 
-        if let Some((state, _, _)) = state.send_events(
+        if let Some((state, _msgs, _statuses)) = state.send_events(
             &[
                 Event::Window(window::Event::Opened {
                     position: None,
@@ -474,7 +474,7 @@ mod tests {
         // Note: Rebuilding here will make the test fail
         // state.rebuild_ui(window_id);
 
-        if let Some((state, _, _)) = state.send_events(
+        if let Some((state, _msgs, _statuses)) = state.send_events(
             &[Event::Mouse(mouse::Event::CursorMoved {
                 position: Point::new(81.0, 45.0),
             })],
