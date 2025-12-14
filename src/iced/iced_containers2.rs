@@ -14,18 +14,24 @@ use crate::get_app;
 use iced::Color;
 use iced::Font;
 use iced::Pixels;
+use iced::Point;
 use iced::Size;
 use iced::Theme;
+use iced::event::Status;
 use iced::keyboard::Modifiers;
 use iced::mouse;
+use iced::mouse::Cursor;
 use iced::theme;
 use iced::window;
+use iced_core::Clipboard;
 use iced_core::Event;
+use iced_core::clipboard;
 use iced_core::renderer::Style;
 use iced_core::window::Event::RedrawRequested;
 use iced_graphics::Viewport;
 use iced_renderer::Renderer;
 use iced_runtime::user_interface;
+use iced_runtime::user_interface::State;
 use iced_wgpu::Engine;
 use log::trace;
 use pollster::block_on;
@@ -50,6 +56,46 @@ use pollster::block_on;
 // use wayland_client::protocol::wl_surface::WlSurface;
 // use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::Shape;
 
+/*
+struct TestWrapper<P: iced_program::Program + 'static>
+where
+    P::Theme: theme::Base,
+{
+    program_instance: iced_program::Instance<P>,
+    renderer: P::Renderer,
+    surface_state: Option<IcedSurfaceState2<'static, P>>,
+}
+
+impl<P: iced_program::Program + 'static> TestWrapper<P>
+where
+    P::Theme: theme::Base,
+{
+    pub fn new(
+        program: P,
+        window_id: window::Id,
+        initial_size: Size<u32>,
+        renderer: P::Renderer,
+    ) -> Self {
+        let (program_instance, _task_message) = iced_program::Instance::new(program);
+
+        let mut content = Self {
+            program_instance,
+            renderer,
+            surface_state: None,
+        };
+
+        let surface_state = IcedSurfaceState2::new(
+            &content.program_instance,
+            theme::Mode::Light,
+            window_id,
+            initial_size,
+            &mut content.renderer,
+        );
+
+        content
+    }
+}
+ */
 struct IcedSurfaceState2<'a, P: iced_program::Program>
 where
     P::Theme: theme::Base,
@@ -129,6 +175,30 @@ where
             cache,
             renderer,
         ));
+    }
+
+    pub fn send_events(
+        &mut self,
+        events: &[Event],
+        renderer: &mut P::Renderer,
+        cursor: Cursor,
+    ) -> Option<(State, Vec<P::Message>, Vec<Status>)> {
+        if let Some(user_interface) = &mut self.user_interface {
+            let mut output_messages = vec![];
+
+            let (state, statuses) = user_interface.update(
+                events,
+                cursor,
+                renderer,
+                &mut iced_core::clipboard::Null,
+                &mut output_messages,
+            );
+
+            Some((state, output_messages, statuses))
+        } else {
+            trace!("No user interface to send events to");
+            None
+        }
     }
 }
 
@@ -296,9 +366,66 @@ mod tests {
             &mut renderer,
         );
 
-        state.rebuild_ui(&instance_iced, window_id, &mut renderer);
+        if let Some((state, messages, statuses)) = state.send_events(
+            &[
+                Event::Window(window::Event::Opened {
+                    position: None,
+                    size: Size::new(200.0, 200.0),
+                }),
+                Event::Window(window::Event::Focused),
+                Event::Window(window::Event::RedrawRequested(iced::time::Instant::now())),
+                Event::Mouse(mouse::Event::CursorEntered),
+                Event::Mouse(mouse::Event::CursorMoved {
+                    position: Point::new(0.0, 0.0),
+                }),
+            ],
+            &mut renderer,
+            Cursor::Available(Point::new(0.0, 0.0)),
+        ) {
+            match state {
+                State::Outdated => todo!(),
+                State::Updated {
+                    mouse_interaction,
+                    redraw_request,
+                    input_method,
+                    has_layout_changed,
+                } => {
+                    println!(
+                        "State::Updated: mouse_interaction={:?}, redraw_request={:?}, \
+                         input_method={:?}, has_layout_changed={}",
+                        mouse_interaction, redraw_request, input_method, has_layout_changed
+                    );
+                }
+            }
+        }
 
-        instance_iced.view(window_id);
+        // state.rebuild_ui(&instance_iced, window_id, &mut renderer);
+
+        // instance_iced.view(window_id);
+
+        if let Some((state, messages, statuses)) = state.send_events(
+            &[Event::Mouse(mouse::Event::CursorMoved {
+                position: Point::new(81.0, 45.0),
+            })],
+            &mut renderer,
+            Cursor::Available(Point::new(81.0, 45.0)),
+        ) {
+            match state {
+                State::Outdated => todo!(),
+                State::Updated {
+                    mouse_interaction,
+                    redraw_request,
+                    input_method,
+                    has_layout_changed,
+                } => {
+                    println!(
+                        "State::Updated: mouse_interaction={:?}, redraw_request={:?}, \
+                         input_method={:?}, has_layout_changed={}",
+                        mouse_interaction, redraw_request, input_method, has_layout_changed
+                    );
+                }
+            }
+        }
 
         state.rebuild_ui(&instance_iced, window_id, &mut renderer);
 
