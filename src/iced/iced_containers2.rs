@@ -35,6 +35,7 @@ use iced_runtime::user_interface::State;
 use iced_wgpu::Engine;
 use log::trace;
 use pollster::block_on;
+use std::pin::Pin;
 // use raw_window_handle::RawDisplayHandle;
 // use raw_window_handle::RawWindowHandle;
 // use raw_window_handle::WaylandDisplayHandle;
@@ -56,17 +57,16 @@ use pollster::block_on;
 // use wayland_client::protocol::wl_surface::WlSurface;
 // use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::Shape;
 
-/*
-struct TestWrapper<P: iced_program::Program + 'static>
+struct TestWrapper<'a, P: iced_program::Program>
 where
     P::Theme: theme::Base,
 {
-    program_instance: iced_program::Instance<P>,
-    renderer: P::Renderer,
-    surface_state: Option<IcedSurfaceState2<'static, P>>,
+    pub program_instance: Pin<Box<iced_program::Instance<P>>>,
+    pub renderer: P::Renderer,
+    pub surface_state: IcedSurfaceState2<'a, P>,
 }
 
-impl<P: iced_program::Program + 'static> TestWrapper<P>
+impl<'a, P: iced_program::Program + 'a> TestWrapper<'a, P>
 where
     P::Theme: theme::Base,
 {
@@ -74,28 +74,54 @@ where
         program: P,
         window_id: window::Id,
         initial_size: Size<u32>,
-        renderer: P::Renderer,
+        mut renderer: P::Renderer,
     ) -> Self {
         let (program_instance, _task_message) = iced_program::Instance::new(program);
 
-        let mut content = Self {
-            program_instance,
-            renderer,
-            surface_state: None,
-        };
+        let boxed_program_instance = Box::pin(program_instance);
 
         let surface_state = IcedSurfaceState2::new(
-            &content.program_instance,
+            unsafe {
+                // This is safeish because program_instance is stored as a field in TestWrapper,
+                // so it lives as long as the containing struct
+                std::mem::transmute::<&iced_program::Instance<P>, &'a iced_program::Instance<P>>(
+                    boxed_program_instance.as_ref().get_ref(),
+                )
+            },
             theme::Mode::Light,
             window_id,
             initial_size,
-            &mut content.renderer,
         );
 
-        content
+        Self {
+            program_instance: boxed_program_instance,
+            renderer,
+            surface_state,
+        }
+    }
+
+    pub fn rebuild_ui(&mut self, window_id: window::Id) {
+        self.surface_state.rebuild_ui(
+            unsafe {
+                std::mem::transmute::<&iced_program::Instance<P>, &'a iced_program::Instance<P>>(
+                    self.program_instance.as_ref().get_ref(),
+                )
+            },
+            window_id,
+            &mut self.renderer,
+        );
+    }
+
+    pub fn send_events(
+        &mut self,
+        events: &[Event],
+        cursor: Cursor,
+    ) -> Option<(State, Vec<P::Message>, Vec<Status>)> {
+        self.surface_state
+            .send_events(events, &mut self.renderer, cursor)
     }
 }
- */
+
 struct IcedSurfaceState2<'a, P: iced_program::Program>
 where
     P::Theme: theme::Base,
@@ -123,7 +149,6 @@ where
         system_theme: theme::Mode,
         window_id: window::Id,
         initial_size: Size<u32>,
-        renderer: &mut P::Renderer,
     ) -> Self {
         let title = program.title(window_id);
         let scale_factor = program.scale_factor(window_id);
@@ -131,15 +156,7 @@ where
         let theme_mode = theme.as_ref().map(theme::Base::mode).unwrap_or_default();
         let default_theme = <P::Theme as theme::Base>::default(system_theme);
         let style = program.style(theme.as_ref().unwrap_or(&default_theme));
-
         let viewport = { Viewport::with_physical_size(initial_size, 1 as f32 * scale_factor) };
-        let cache = user_interface::Cache::default();
-        let user_interface = user_interface::UserInterface::build(
-            program.view(window_id),
-            Size::new(initial_size.width as f32, initial_size.height as f32),
-            cache,
-            renderer,
-        );
 
         Self {
             title,
@@ -152,7 +169,7 @@ where
             theme_mode,
             default_theme,
             style,
-            user_interface: Some(user_interface),
+            user_interface: None,
         }
     }
 
@@ -164,11 +181,13 @@ where
     ) {
         let new_view = program.view(window_id);
         let size = self.viewport.logical_size();
-        let cache = self
-            .user_interface
-            .take()
-            .expect("User interface should be present")
-            .into_cache();
+        let cache = {
+            if let Some(user_interface) = self.user_interface.take() {
+                user_interface.into_cache()
+            } else {
+                user_interface::Cache::default()
+            }
+        };
         self.user_interface = Some(user_interface::UserInterface::build(
             new_view,
             Size::new(size.width as f32, size.height as f32),
@@ -211,6 +230,7 @@ mod tests {
     use iced::widget::button;
     use iced::widget::column;
     use iced::widget::text;
+    use iced::window::RedrawRequest;
     use iced_core::widget::Tree;
     use raw_window_handle::RawDisplayHandle;
     use raw_window_handle::RawWindowHandle;
@@ -254,57 +274,50 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_counter_view() {
-        // Implement `iced_program::Program` for `Counter` so we can create
-        // an `iced_program::Instance` and pass it to `IcedSurfaceState2::new`.
-        impl iced_program::Program for Counter {
-            type Executor = iced::executor::Default;
-            type Message = Message;
-            type Renderer = Renderer;
-            type State = Counter;
-            type Theme = theme::Theme;
+    impl iced_program::Program for Counter {
+        type Executor = iced::executor::Default;
+        type Message = Message;
+        type Renderer = Renderer;
+        type State = Counter;
+        type Theme = theme::Theme;
 
-            fn name() -> &'static str {
-                "Counter"
-            }
-
-            fn settings(&self) -> iced::Settings {
-                iced::Settings::default()
-            }
-
-            fn window(&self) -> Option<iced_core::window::Settings> {
-                Some(iced_core::window::Settings::default())
-            }
-
-            fn boot(&self) -> (Self::State, iced::Task<Self::Message>) {
-                (Counter::default(), iced::Task::none())
-            }
-
-            fn update(
-                &self,
-                state: &mut Self::State,
-                message: Self::Message,
-            ) -> iced::Task<Self::Message> {
-                state.update(message);
-                iced::Task::none()
-            }
-
-            fn view<'a>(
-                &self,
-                state: &'a Self::State,
-                window_id: iced_core::window::Id,
-            ) -> iced_core::Element<'a, Self::Message, Self::Theme, Self::Renderer> {
-                state.view().into()
-            }
+        fn name() -> &'static str {
+            "Counter"
         }
+
+        fn settings(&self) -> iced::Settings {
+            iced::Settings::default()
+        }
+
+        fn window(&self) -> Option<iced_core::window::Settings> {
+            Some(iced_core::window::Settings::default())
+        }
+
+        fn boot(&self) -> (Self::State, iced::Task<Self::Message>) {
+            (Counter::default(), iced::Task::none())
+        }
+
+        fn update(
+            &self,
+            state: &mut Self::State,
+            message: Self::Message,
+        ) -> iced::Task<Self::Message> {
+            state.update(message);
+            iced::Task::none()
+        }
+
+        fn view<'a>(
+            &self,
+            state: &'a Self::State,
+            window_id: iced_core::window::Id,
+        ) -> iced_core::Element<'a, Self::Message, Self::Theme, Self::Renderer> {
+            state.view().into()
+        }
+    }
+    fn get_renderer() -> Renderer {
         let app = get_init_app();
-        let counter = Counter::default();
 
         let wl_surface = app.compositor_state.create_surface(&app.qh);
-
-        let (mut instance_iced, _task_message) = iced_program::Instance::new(counter);
-        let window_id = window::Id::unique();
 
         let raw_display_handle = RawDisplayHandle::Wayland(WaylandDisplayHandle::new(
             NonNull::new(app.conn.backend().display_ptr() as *mut _)
@@ -356,15 +369,23 @@ mod tests {
         );
 
         let wgpu_renderer = iced_wgpu::Renderer::new(engine.clone(), Font::DEFAULT, Pixels(16.0));
-        let mut renderer = iced_renderer::Renderer::Primary(wgpu_renderer);
+        iced_renderer::Renderer::Primary(wgpu_renderer)
+    }
 
+    #[test]
+    fn test_counter_view() {
+        let counter = Counter::default();
+        let (mut instance_iced, _task_message) = iced_program::Instance::new(counter);
+        let window_id = window::Id::unique();
         let mut state = IcedSurfaceState2::new(
             &instance_iced,
             theme::Mode::Light,
             window_id,
             Size::new(800, 600),
-            &mut renderer,
         );
+        let mut renderer = get_renderer();
+
+        state.rebuild_ui(&instance_iced, window_id, &mut renderer);
 
         if let Some((state, messages, statuses)) = state.send_events(
             &[
@@ -384,24 +405,14 @@ mod tests {
         ) {
             match state {
                 State::Outdated => todo!(),
-                State::Updated {
-                    mouse_interaction,
-                    redraw_request,
-                    input_method,
-                    has_layout_changed,
-                } => {
-                    println!(
-                        "State::Updated: mouse_interaction={:?}, redraw_request={:?}, \
-                         input_method={:?}, has_layout_changed={}",
-                        mouse_interaction, redraw_request, input_method, has_layout_changed
-                    );
+                State::Updated { redraw_request, .. } => {
+                    assert_eq!(redraw_request, RedrawRequest::Wait);
                 }
             }
         }
 
+        // Note: Rebuilding here will make the test fail
         // state.rebuild_ui(&instance_iced, window_id, &mut renderer);
-
-        // instance_iced.view(window_id);
 
         if let Some((state, messages, statuses)) = state.send_events(
             &[Event::Mouse(mouse::Event::CursorMoved {
@@ -412,27 +423,71 @@ mod tests {
         ) {
             match state {
                 State::Outdated => todo!(),
-                State::Updated {
-                    mouse_interaction,
-                    redraw_request,
-                    input_method,
-                    has_layout_changed,
-                } => {
-                    println!(
-                        "State::Updated: mouse_interaction={:?}, redraw_request={:?}, \
-                         input_method={:?}, has_layout_changed={}",
-                        mouse_interaction, redraw_request, input_method, has_layout_changed
-                    );
+                State::Updated { redraw_request, .. } => {
+                    assert_eq!(redraw_request, RedrawRequest::NextFrame);
                 }
             }
         }
 
         state.rebuild_ui(&instance_iced, window_id, &mut renderer);
 
-        // Trigger an increment message on the `Instance` and ignore the returned
-        // `Task`.
+        // Trigger an increment message on the `Instance` and ignore the
+        // returned `Task`.
 
         // Call `view` to exercise the rendering path after the update.
-        let root = instance_iced.view(window_id);
+        // let root = instance_iced.view(window_id);
+    }
+
+    #[test]
+    fn test_wrapper() {
+        let counter = Counter::default();
+        // let (mut instance_iced, _task_message) =
+        // iced_program::Instance::new(counter);
+        let window_id = window::Id::unique();
+        let mut state = TestWrapper::new(counter, window_id, Size::new(800, 600), get_renderer());
+
+        state.rebuild_ui(window_id);
+
+        if let Some((state, _, _)) = state.send_events(
+            &[
+                Event::Window(window::Event::Opened {
+                    position: None,
+                    size: Size::new(200.0, 200.0),
+                }),
+                Event::Window(window::Event::Focused),
+                Event::Window(window::Event::RedrawRequested(iced::time::Instant::now())),
+                Event::Mouse(mouse::Event::CursorEntered),
+                Event::Mouse(mouse::Event::CursorMoved {
+                    position: Point::new(0.0, 0.0),
+                }),
+            ],
+            Cursor::Available(Point::new(0.0, 0.0)),
+        ) {
+            match state {
+                State::Outdated => todo!(),
+                State::Updated { redraw_request, .. } => {
+                    assert_eq!(redraw_request, RedrawRequest::Wait);
+                }
+            }
+        }
+
+        // Note: Rebuilding here will make the test fail
+        // state.rebuild_ui(window_id);
+
+        if let Some((state, _, _)) = state.send_events(
+            &[Event::Mouse(mouse::Event::CursorMoved {
+                position: Point::new(81.0, 45.0),
+            })],
+            Cursor::Available(Point::new(81.0, 45.0)),
+        ) {
+            match state {
+                State::Outdated => todo!(),
+                State::Updated { redraw_request, .. } => {
+                    assert_eq!(redraw_request, RedrawRequest::NextFrame);
+                }
+            }
+        }
+
+        state.rebuild_ui(window_id);
     }
 }
