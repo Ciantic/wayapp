@@ -506,7 +506,7 @@ pub fn keysym_to_iced_key_and_loc(keysym: Keysym) -> (Key, Location) {
     (key, location)
 }
 
-fn wayland_button_to_iced(button: u32) -> Option<IcedMouseButton> {
+pub fn wayland_button_to_iced(button: u32) -> Option<IcedMouseButton> {
     // Linux button codes (from linux/input-event-codes.h)
     // BTN_LEFT = 0x110 = 272
     // BTN_RIGHT = 0x111 = 273
@@ -519,7 +519,7 @@ fn wayland_button_to_iced(button: u32) -> Option<IcedMouseButton> {
     }
 }
 
-fn keysym_to_physical_key(keysym: Keysym, raw_code: u32) -> Physical {
+pub fn keysym_to_physical_key(keysym: Keysym, raw_code: u32) -> Physical {
     let code = match keysym {
         // Digit keys
         Keysym::_0 => Code::Digit0,

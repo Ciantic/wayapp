@@ -1,0 +1,19 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../../../dep-projects/iced"
+		}
+	],
+	"settings": {
+		"rust-analyzer.cargo.features": [
+			"iced-wgpu",
+			"egui-wgpu"
+		],
+		"rust-analyzer.rustfmt.extraArgs": [
+			"+nightly"
+		]
+	}
+}
