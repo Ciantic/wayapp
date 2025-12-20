@@ -8,9 +8,13 @@ use smithay_client_toolkit::shell::xdg::window::WindowDecorations;
 use wayapp::EguiAppData;
 use wayapp::EguiLayerSurface;
 use wayapp::EguiWindow;
+use wayapp::RunApplication;
 use wayapp::get_init_app;
 use std::os::unix::io::{AsFd, AsRawFd, FromRawFd, OwnedFd};
 use tokio::io::unix::AsyncFd;
+use futures::future::Either;
+use futures::future::{poll_fn, select};
+use std::pin::pin;
 
 struct EguiApp {
     counter: i32,
@@ -136,67 +140,18 @@ async fn main() {
         let _ = tx_clone.send(AppEvent::NetworkData("Simulated network response".to_string()));
     });
 
-    // Get event queue
-    let mut event_queue = app.event_queue.take().unwrap();
-
-    // Wrap the Wayland FD in AsyncFd for tokio integration
-    // Note: We duplicate the FD so we don't interfere with the event_queue's ownership
-    let wayland_fd = event_queue.as_fd().try_clone_to_owned().unwrap();
-    let async_fd = AsyncFd::new(WaylandFd(wayland_fd)).unwrap();
-
     println!("[ASYNC MAIN] Starting async multi-source event loop on thread {:?}", std::thread::current().id());
 
     loop {
-        // Flush pending outgoing requests
-        if let Err(e) = event_queue.flush() {
-            eprintln!("[ASYNC MAIN] Flush error: {:?}", e);
-            break;
-        }
-
-        // Use tokio::select! to wait on multiple async sources
-        tokio::select! {
-            // Wait for Wayland socket to be readable
-            result = async_fd.readable() => {
-                match result {
-                    Ok(mut guard) => {
-                        // Try to prepare read
-                        if let Some(read_guard) = event_queue.prepare_read() {
-                            // Clear the ready state
-                            guard.clear_ready();
-                            
-                            // Read from socket
-                            match read_guard.read() {
-                                Ok(n) => {
-                                    println!("[ASYNC MAIN] Read {} events from Wayland socket", n);
-                                }
-                                Err(e) => {
-                                    eprintln!("[ASYNC MAIN] Wayland read error: {:?}", e);
-                                    break;
-                                }
-                            }
-                        }
-                        
-                        // Dispatch pending events
-                        match event_queue.dispatch_pending(app) {
-                            Ok(dispatched) if dispatched > 0 => {
-                                println!("[ASYNC MAIN] Dispatched {} Wayland events", dispatched);
-                            }
-                            Err(e) => {
-                                eprintln!("[ASYNC MAIN] Dispatch error: {:?}", e);
-                                break;
-                            }
-                            _ => {}
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("[ASYNC MAIN] AsyncFd error: {:?}", e);
-                        break;
-                    }
-                }
+        match select(
+            // TODO: This freezes for ~1 second, then continues, then freezes ~1s ...
+            poll_fn(|cx| app.poll_dispatch_pending(cx)),
+            pin!(rx.recv()),
+        ).await {
+            Either::Left((_, _)) => {
+                println!("[ASYNC MAIN] ✓ Dispatched Wayland events on thread {:?}", std::thread::current().id());
             }
-            
-            // Wait for events from the channel
-            Some(event) = rx.recv() => {
+            Either::Right((Some(event), _)) => {
                 match event {
                     AppEvent::TimerTick(tick) => {
                         println!("[ASYNC MAIN] ✓ Received timer tick: {} on thread {:?}", 
@@ -211,6 +166,10 @@ async fn main() {
                             data, std::thread::current().id());
                     }
                 }
+            },
+            Either::Right((None, _)) => {
+                // Channel closed, exit loop
+                break;
             }
         }
     }
