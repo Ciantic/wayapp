@@ -822,19 +822,16 @@ impl ProvidesRegistryState for Application {
     }
 }
 
+
 delegate_compositor!(Application);
 delegate_subcompositor!(Application);
 delegate_output!(Application);
 delegate_shm!(Application);
-
 delegate_seat!(Application);
 delegate_keyboard!(Application);
 delegate_pointer!(Application);
-
 delegate_layer!(Application);
-
 delegate_xdg_shell!(Application);
 delegate_xdg_window!(Application);
 delegate_xdg_popup!(Application);
-
 delegate_registry!(Application);

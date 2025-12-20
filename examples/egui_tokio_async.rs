@@ -5,16 +5,12 @@ use smithay_client_toolkit::shell::wlr_layer::Anchor;
 use smithay_client_toolkit::shell::wlr_layer::KeyboardInteractivity;
 use smithay_client_toolkit::shell::wlr_layer::Layer;
 use smithay_client_toolkit::shell::xdg::window::WindowDecorations;
+use tokio::select;
+use tokio::task::spawn_blocking;
 use wayapp::EguiAppData;
 use wayapp::EguiLayerSurface;
 use wayapp::EguiWindow;
-use wayapp::RunApplication;
 use wayapp::get_init_app;
-use std::os::unix::io::{AsFd, AsRawFd, FromRawFd, OwnedFd};
-use tokio::io::unix::AsyncFd;
-use futures::future::Either;
-use futures::future::{poll_fn, select};
-use std::pin::pin;
 
 struct EguiApp {
     counter: i32,
@@ -64,19 +60,10 @@ impl EguiAppData for EguiApp {
 #[derive(Debug)]
 enum AppEvent {
     TimerTick(u32),
-    ExternalCommand(String),
-    NetworkData(String),
 }
 
-// Helper struct to wrap the Wayland connection FD for async
-struct WaylandFd(OwnedFd);
 
-impl AsRawFd for WaylandFd {
-    fn as_raw_fd(&self) -> std::os::unix::io::RawFd {
-        self.0.as_raw_fd()
-    }
-}
-
+// #[tokio::main(flavor = "current_thread")]
 #[tokio::main]
 async fn main() {
     unsafe { std::env::set_var("RUST_LOG", "wayapp=trace") };
@@ -124,52 +111,37 @@ async fn main() {
     tokio::spawn(async move {
         let mut tick = 0u32;
         loop {
-            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
             tick += 1;
             println!("[ASYNC TASK] Timer tick {} on thread {:?}", tick, std::thread::current().id());
             let _ = tx_clone.send(AppEvent::TimerTick(tick));
         }
     });
-
-    let tx_clone = tx.clone();
-    tokio::spawn(async move {
-        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-        let _ = tx_clone.send(AppEvent::ExternalCommand("Hello from async task!".to_string()));
-        
-        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-        let _ = tx_clone.send(AppEvent::NetworkData("Simulated network response".to_string()));
-    });
-
-    println!("[ASYNC MAIN] Starting async multi-source event loop on thread {:?}", std::thread::current().id());
-
+    
+    let mut event_queue = app.event_queue.take().unwrap();
     loop {
-        match select(
-            // TODO: This freezes for ~1 second, then continues, then freezes ~1s ...
-            poll_fn(|cx| app.poll_dispatch_pending(cx)),
-            pin!(rx.recv()),
-        ).await {
-            Either::Left((_, _)) => {
+        select! {
+            // Wait for Wayland events in a blocking task, then dispatch them
+            _ = spawn_blocking({
+                let conn = app.conn.clone();
+                move || {
+                    if let Some(guard) = conn.prepare_read() {
+                        guard.read_without_dispatch().unwrap();
+                    }
+                }
+            }) => {
                 println!("[ASYNC MAIN] ✓ Dispatched Wayland events on thread {:?}", std::thread::current().id());
+                let _ = event_queue.dispatch_pending(app);
             }
-            Either::Right((Some(event), _)) => {
+
+            // Mock of other async events
+            Some(event) = rx.recv() => {
                 match event {
                     AppEvent::TimerTick(tick) => {
                         println!("[ASYNC MAIN] ✓ Received timer tick: {} on thread {:?}", 
                             tick, std::thread::current().id());
                     }
-                    AppEvent::ExternalCommand(cmd) => {
-                        println!("[ASYNC MAIN] ✓ Received external command: '{}' on thread {:?}", 
-                            cmd, std::thread::current().id());
-                    }
-                    AppEvent::NetworkData(data) => {
-                        println!("[ASYNC MAIN] ✓ Received network data: '{}' on thread {:?}", 
-                            data, std::thread::current().id());
-                    }
                 }
-            },
-            Either::Right((None, _)) => {
-                // Channel closed, exit loop
-                break;
             }
         }
     }
