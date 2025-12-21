@@ -5,12 +5,16 @@ use crate::Application;
 use crate::BaseTrait;
 use crate::CompositorHandlerContainer;
 use crate::KeyboardHandlerContainer;
+use crate::Kind;
 use crate::LayerSurfaceContainer;
 use crate::PointerHandlerContainer;
 use crate::PopupContainer;
 use crate::SubsurfaceContainer;
+use crate::ViewManager;
+use crate::WaylandEvent;
 use crate::WindowContainer;
 use crate::get_app;
+use egui::ahash::HashMap;
 use log::trace;
 use smithay_client_toolkit::shell::WaylandSurface;
 use smithay_client_toolkit::shell::wlr_layer::LayerSurface;
@@ -19,12 +23,102 @@ use smithay_client_toolkit::shell::xdg::popup::Popup;
 use smithay_client_toolkit::shell::xdg::popup::PopupConfigure;
 use smithay_client_toolkit::shell::xdg::window::Window;
 use smithay_client_toolkit::shell::xdg::window::WindowConfigure;
+use smithay_client_toolkit::shm::Shm;
 use smithay_client_toolkit::shm::slot::SlotPool;
 use std::num::NonZero;
+use wayland_backend::client::ObjectId;
 use wayland_client::Proxy;
 use wayland_client::QueueHandle;
 use wayland_client::protocol::wl_shm;
 use wayland_client::protocol::wl_surface::WlSurface;
+use wgpu::wgc::id;
+
+#[derive(Debug, Default)]
+pub struct SingleColorManager {
+    view_manager: ViewManager<(Option<SlotPool>, (u8, u8, u8))>,
+    subsurface_pools: HashMap<ObjectId, SlotPool>,
+}
+
+// Deref to ViewManager
+impl std::ops::Deref for SingleColorManager {
+    type Target = ViewManager<(Option<SlotPool>, (u8, u8, u8))>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.view_manager
+    }
+}
+
+impl std::ops::DerefMut for SingleColorManager {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.view_manager
+    }
+}
+
+impl SingleColorManager {
+    fn configure(&mut self, surface: &WlSurface, width: u32, height: u32) {
+        let subsurfaces = self.view_manager.get_sub_wlsurfaces(&surface).to_vec();
+
+        // Configuration logic if needed
+        if let Some((pool, color)) = self.view_manager.get_data_by_id_mut(&surface.id()) {
+            let app = get_app();
+
+            let pool = pool.get_or_insert_with(|| {
+                SlotPool::new((width * height * 4).try_into().unwrap(), &app.shm_state)
+                    .expect("Failed to create SlotPool")
+            });
+
+            single_color_example_buffer_configure(pool, surface, &app.qh, width, height, *color);
+        }
+        subsurfaces.iter().for_each(|(_, sub_wlsurface)| {
+            let app = get_app();
+            if let Some((pool, color)) = self.view_manager.get_data_by_id_mut(&sub_wlsurface.id()) {
+                let pool = pool.get_or_insert_with(|| {
+                    SlotPool::new((width * height * 4).try_into().unwrap(), &app.shm_state)
+                        .expect("Failed to create SlotPool")
+                });
+                single_color_example_buffer_configure(
+                    pool,
+                    sub_wlsurface,
+                    &app.qh,
+                    100,
+                    30,
+                    *color,
+                );
+            }
+        });
+    }
+
+    pub fn handle_events(&mut self, events: &[WaylandEvent]) {
+        for event in events {
+            match event {
+                WaylandEvent::WindowConfigure(window, configure) => {
+                    let width = configure
+                        .new_size
+                        .0
+                        .unwrap_or_else(|| NonZero::new(256).unwrap())
+                        .get();
+                    let height = configure
+                        .new_size
+                        .1
+                        .unwrap_or_else(|| NonZero::new(256).unwrap())
+                        .get();
+                    self.configure(&window.wl_surface(), width, height);
+                }
+                WaylandEvent::LayerShellConfigure(layer_surface, config) => {
+                    let width = config.new_size.0;
+                    let height = config.new_size.1;
+                    self.configure(&layer_surface.wl_surface(), width, height);
+                }
+                WaylandEvent::PopupConfigure(popup, config) => {
+                    let width = config.width as u32;
+                    let height = config.height as u32;
+                    self.configure(&popup.wl_surface(), width, height);
+                }
+                _ => {}
+            }
+        }
+    }
+}
 
 fn single_color_example_buffer_configure(
     pool: &mut SlotPool,
@@ -61,176 +155,4 @@ fn single_color_example_buffer_configure(
     surface.frame(qh, surface.clone());
     buffer.attach_to(surface).expect("buffer attach");
     surface.commit();
-}
-
-pub struct ExampleSingleColorWindow {
-    pub window: Window,
-    pub color: (u8, u8, u8),
-    pub pool: Option<SlotPool>,
-}
-
-impl CompositorHandlerContainer for ExampleSingleColorWindow {}
-impl KeyboardHandlerContainer for ExampleSingleColorWindow {}
-impl PointerHandlerContainer for ExampleSingleColorWindow {}
-impl BaseTrait for ExampleSingleColorWindow {
-    fn get_object_id(&self) -> wayland_backend::client::ObjectId {
-        self.window.wl_surface().id()
-    }
-}
-
-impl WindowContainer for ExampleSingleColorWindow {
-    fn configure(&mut self, configure: &WindowConfigure) {
-        let app = get_app();
-        let width = configure
-            .new_size
-            .0
-            .unwrap_or_else(|| NonZero::new(256).unwrap())
-            .get();
-        let height = configure
-            .new_size
-            .1
-            .unwrap_or_else(|| NonZero::new(256).unwrap())
-            .get();
-
-        // Ensure pool exists
-        let pool = self.pool.get_or_insert_with(|| {
-            SlotPool::new((width * height * 4).try_into().unwrap(), &app.shm_state)
-                .expect("Failed to create SlotPool")
-        });
-
-        // Handle window configuration changes here
-        single_color_example_buffer_configure(
-            pool,
-            &self.window.wl_surface().clone(),
-            &app.qh,
-            width,
-            height,
-            self.color,
-        );
-    }
-
-    fn allowed_to_close(&self) -> bool {
-        true
-    }
-}
-
-pub struct ExampleSingleColorLayerSurface {
-    pub layer_surface: LayerSurface,
-    pub color: (u8, u8, u8),
-    pub pool: Option<SlotPool>,
-}
-
-impl CompositorHandlerContainer for ExampleSingleColorLayerSurface {}
-impl KeyboardHandlerContainer for ExampleSingleColorLayerSurface {}
-impl PointerHandlerContainer for ExampleSingleColorLayerSurface {}
-impl BaseTrait for ExampleSingleColorLayerSurface {
-    fn get_object_id(&self) -> wayland_backend::client::ObjectId {
-        self.layer_surface.wl_surface().id()
-    }
-}
-
-impl LayerSurfaceContainer for ExampleSingleColorLayerSurface {
-    fn configure(&mut self, config: &LayerSurfaceConfigure) {
-        let app = get_app();
-        let width = config.new_size.0;
-        let height = config.new_size.1;
-
-        // Ensure pool exists
-        let pool = self.pool.get_or_insert_with(|| {
-            SlotPool::new((width * height * 4).try_into().unwrap(), &app.shm_state)
-                .expect("Failed to create SlotPool")
-        });
-
-        // Handle layer surface configuration changes here
-        single_color_example_buffer_configure(
-            pool,
-            &self.layer_surface.wl_surface().clone(),
-            &app.qh,
-            width,
-            height,
-            self.color,
-        );
-    }
-
-    fn closed(&mut self) {
-        // Handle layer surface close request here
-    }
-}
-
-pub struct ExampleSingleColorPopup {
-    pub popup: Popup,
-    pub color: (u8, u8, u8),
-    pub pool: Option<SlotPool>,
-}
-
-impl CompositorHandlerContainer for ExampleSingleColorPopup {}
-impl KeyboardHandlerContainer for ExampleSingleColorPopup {}
-impl PointerHandlerContainer for ExampleSingleColorPopup {}
-impl BaseTrait for ExampleSingleColorPopup {
-    fn get_object_id(&self) -> wayland_backend::client::ObjectId {
-        self.popup.wl_surface().id()
-    }
-}
-
-impl PopupContainer for ExampleSingleColorPopup {
-    fn configure(&mut self, config: &PopupConfigure) {
-        let app = get_app();
-        let width = config.width as u32;
-        let height = config.height as u32;
-
-        // Ensure pool exists
-        let pool = self.pool.get_or_insert_with(|| {
-            SlotPool::new((width * height * 4).try_into().unwrap(), &app.shm_state)
-                .expect("Failed to create SlotPool")
-        });
-
-        // Handle popup configuration changes here
-        single_color_example_buffer_configure(
-            pool,
-            &self.popup.wl_surface().clone(),
-            &app.qh,
-            width,
-            height,
-            self.color,
-        );
-    }
-
-    fn done(&mut self) {
-        // Handle popup done event here
-    }
-}
-
-pub struct ExampleSingleColorSubsurface {
-    pub wl_surface: WlSurface,
-    pub color: (u8, u8, u8),
-    pub pool: Option<SlotPool>,
-}
-
-impl CompositorHandlerContainer for ExampleSingleColorSubsurface {}
-impl KeyboardHandlerContainer for ExampleSingleColorSubsurface {}
-impl PointerHandlerContainer for ExampleSingleColorSubsurface {}
-impl BaseTrait for ExampleSingleColorSubsurface {
-    fn get_object_id(&self) -> wayland_backend::client::ObjectId {
-        self.wl_surface.id()
-    }
-}
-
-impl SubsurfaceContainer for ExampleSingleColorSubsurface {
-    fn configure(&mut self, width: u32, height: u32) {
-        let app = get_app();
-        let pool = self.pool.get_or_insert_with(|| {
-            SlotPool::new((width * height * 4).try_into().unwrap(), &app.shm_state)
-                .expect("Failed to create SlotPool")
-        });
-
-        // Handle subsurface configuration changes here
-        single_color_example_buffer_configure(
-            pool,
-            &self.wl_surface.clone(),
-            &app.qh,
-            width,
-            height,
-            self.color,
-        );
-    }
 }
