@@ -175,28 +175,35 @@ impl<D> ViewManager<D> {
         }
     }
 
-    pub fn get_data<T: Into<Kind>>(&self, kind: T) -> Option<&D> {
-        let kind = kind.into();
-        self.data_by_id.get(&kind.get_object_id())
-    }
-
-    pub fn get_data_mut<T: Into<Kind>>(&mut self, kind: T) -> Option<&mut D> {
-        let kind = kind.into();
-        self.data_by_id.get_mut(&kind.get_object_id())
-    }
-
-    pub fn get_data_by_id(&self, id: &ObjectId) -> Option<&D> {
-        self.data_by_id.get(id)
-    }
-
     pub fn get_data_by_id_mut(&mut self, id: &ObjectId) -> Option<&mut D> {
         self.data_by_id.get_mut(id)
     }
 
-    pub fn get_sub_wlsurfaces(&self, parent: &WlSurface) -> &[(WlSubsurface, WlSurface)] {
+    fn get_sub_wlsurfaces(&self, parent: &WlSurface) -> &[(WlSubsurface, WlSurface)] {
         self.subsurfaces_by_parent
             .get(&parent.id())
             .map(|v| v.as_slice())
             .unwrap_or(&[])
+    }
+
+    pub fn execute_recursively_to_all_subsurfaces<F>(&mut self, parent: &WlSurface, mut func: F)
+    where
+        F: FnMut(&WlSubsurface, &WlSurface, &mut D),
+    {
+        self.execute_recursively_to_all_subsurfaces_impl(parent, &mut func);
+    }
+
+    fn execute_recursively_to_all_subsurfaces_impl<F>(&mut self, parent: &WlSurface, func: &mut F)
+    where
+        F: FnMut(&WlSubsurface, &WlSurface, &mut D),
+    {
+        let subsurfaces = self.get_sub_wlsurfaces(parent).to_vec();
+        for (wlsubsurface, sub_wlsurface) in subsurfaces {
+            if let Some(data) = self.get_data_by_id_mut(&sub_wlsurface.id()) {
+                func(&wlsubsurface, &sub_wlsurface, data);
+            }
+            // Recurse into subsurfaces of this subsurface
+            self.execute_recursively_to_all_subsurfaces_impl(&sub_wlsurface, func);
+        }
     }
 }

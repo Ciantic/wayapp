@@ -118,8 +118,9 @@ fn main() {
         event_queue
             .blocking_dispatch(app)
             .expect("Wayland dispatch failed");
-        app.wayland_events
-            .drain(..)
-            .for_each(|event| single_color_manager.handle_events(&[event]));
+        app.wayland_events.drain(..).for_each(|event| {
+            single_color_manager.handle_events(&[event])
+            //
+        });
     }
 }

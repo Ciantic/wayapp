@@ -36,7 +36,6 @@ use wgpu::wgc::id;
 #[derive(Debug, Default)]
 pub struct SingleColorManager {
     view_manager: ViewManager<(Option<SlotPool>, (u8, u8, u8))>,
-    subsurface_pools: HashMap<ObjectId, SlotPool>,
 }
 
 // Deref to ViewManager
@@ -56,8 +55,6 @@ impl std::ops::DerefMut for SingleColorManager {
 
 impl SingleColorManager {
     fn configure(&mut self, surface: &WlSurface, width: u32, height: u32) {
-        let subsurfaces = self.view_manager.get_sub_wlsurfaces(&surface).to_vec();
-
         // Configuration logic if needed
         if let Some((pool, color)) = self.view_manager.get_data_by_id_mut(&surface.id()) {
             let app = get_app();
@@ -69,10 +66,14 @@ impl SingleColorManager {
 
             single_color_example_buffer_configure(pool, surface, &app.qh, width, height, *color);
         }
-        subsurfaces.iter().for_each(|(_, sub_wlsurface)| {
-            let app = get_app();
-            if let Some((pool, color)) = self.view_manager.get_data_by_id_mut(&sub_wlsurface.id()) {
-                let pool = pool.get_or_insert_with(|| {
+
+        self.view_manager.execute_recursively_to_all_subsurfaces(
+            &surface,
+            |_subsurface, sub_wlsurface, (pool_opt, color)| {
+                let app = get_app();
+                trace!("Configuring subsurfaces of surface id: {:?}", surface.id());
+
+                let pool = pool_opt.get_or_insert_with(|| {
                     SlotPool::new((width * height * 4).try_into().unwrap(), &app.shm_state)
                         .expect("Failed to create SlotPool")
                 });
@@ -84,8 +85,8 @@ impl SingleColorManager {
                     30,
                     *color,
                 );
-            }
-        });
+            },
+        );
     }
 
     pub fn handle_events(&mut self, events: &[WaylandEvent]) {
