@@ -6,11 +6,11 @@ use crate::KeyboardHandlerContainer;
 use crate::LayerSurfaceContainer;
 use crate::PointerHandlerContainer;
 use crate::PopupContainer;
+use crate::RenderOutput;
 use crate::SubsurfaceContainer;
 use crate::WaylandToEguiInput;
 use crate::WindowContainer;
 use crate::get_app;
-use egui::PlatformOutput;
 use log::trace;
 use pollster::block_on;
 use raw_window_handle::RawDisplayHandle;
@@ -34,8 +34,56 @@ use wayland_client::QueueHandle;
 use wayland_client::protocol::wl_surface::WlSurface;
 use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::Shape;
 
+/// Rectangle for input region: (x, y, width, height)
+pub type InputRect = (i32, i32, i32, i32);
+
+/// Configuration options for the WGPU surface
+#[derive(Debug, Clone, PartialEq)]
+pub struct SurfaceOptions {
+    /// Clear color for the surface background
+    pub clear_color: wgpu::Color,
+    /// Present mode for vsync behavior
+    pub present_mode: wgpu::PresentMode,
+    /// Alpha compositing mode
+    pub alpha_mode: wgpu::CompositeAlphaMode,
+}
+
+impl Default for SurfaceOptions {
+    fn default() -> Self {
+        Self {
+            clear_color: wgpu::Color::BLACK,
+            present_mode: wgpu::PresentMode::Mailbox,
+            alpha_mode: wgpu::CompositeAlphaMode::Auto,
+        }
+    }
+}
+
+impl SurfaceOptions {
+    /// Preset for transparent overlay surfaces
+    pub fn transparent_overlay() -> Self {
+        Self {
+            clear_color: wgpu::Color::TRANSPARENT,
+            present_mode: wgpu::PresentMode::Fifo,
+            alpha_mode: wgpu::CompositeAlphaMode::PreMultiplied,
+        }
+    }
+}
+
 pub trait EguiAppData {
     fn ui(&mut self, ctx: &egui::Context);
+
+    /// Return input regions (clickable areas). If None, entire surface receives
+    /// input. If Some(vec), only those rectangles receive input (rest is
+    /// click-through).
+    fn input_regions(&self) -> Option<Vec<InputRect>> {
+        None
+    }
+
+    /// Return surface configuration options. Override to customize clear color,
+    /// present mode, and alpha compositing.
+    fn surface_options(&self) -> SurfaceOptions {
+        SurfaceOptions::default()
+    }
 }
 
 struct EguiSurfaceState<A: EguiAppData> {
@@ -54,6 +102,10 @@ struct EguiSurfaceState<A: EguiAppData> {
     scale_factor: i32,
     surface_config: Option<wgpu::SurfaceConfiguration>,
     output_format: wgpu::TextureFormat,
+    last_input_regions: Option<Vec<InputRect>>,
+    last_surface_options: SurfaceOptions,
+    /// was a new frame already requested? Set by e.g. mouse events, cleared on render
+    is_frame_requested: bool,
 }
 
 impl<A: EguiAppData> EguiSurfaceState<A> {
@@ -119,6 +171,9 @@ impl<A: EguiAppData> EguiSurfaceState<A> {
             scale_factor: 1,
             surface_config: None,
             output_format,
+            last_input_regions: None,
+            last_surface_options: SurfaceOptions::default(),
+            is_frame_requested: false,
         }
     }
 
@@ -134,33 +189,42 @@ impl<A: EguiAppData> EguiSurfaceState<A> {
         self.render();
     }
 
+    /// Request a frame callback to ensure pending input gets processed.
+    /// This is needed when input arrives while idle (no frame callback pending).
+    fn request_frame(&mut self) {
+        if self.is_frame_requested {
+            return;
+        }
+        self.is_frame_requested = true;
+        self.wl_surface
+            .frame(&self.queue_handle, self.wl_surface.clone());
+        self.wl_surface.commit();
+    }
+
     fn handle_pointer_event(&mut self, event: &PointerEvent) {
         self.input_state.handle_pointer_event(event);
-        let platform_output = self.render();
-
-        // Handle cursor icon changes from EGUI
-        get_app().set_cursor(egui_to_cursor_shape(platform_output.cursor_icon));
+        self.request_frame();
     }
 
     fn handle_keyboard_enter(&mut self) {
         self.input_state.handle_keyboard_enter();
-        self.render();
+        self.request_frame();
     }
 
     fn handle_keyboard_leave(&mut self) {
         self.input_state.handle_keyboard_leave();
-        self.render();
+        self.request_frame();
     }
 
     fn handle_keyboard_event(&mut self, event: &KeyEvent, pressed: bool, repeat: bool) {
         self.input_state
             .handle_keyboard_event(event, pressed, repeat);
-        self.render();
+        self.request_frame();
     }
 
     fn update_modifiers(&mut self, modifiers: &Modifiers) {
         self.input_state.update_modifiers(modifiers);
-        self.render();
+        self.request_frame();
     }
 
     fn scale_factor_changed(&mut self, new_factor: i32) {
@@ -174,7 +238,17 @@ impl<A: EguiAppData> EguiSurfaceState<A> {
         self.render();
     }
 
-    fn render(&mut self) -> PlatformOutput {
+    fn render(&mut self) -> RenderOutput {
+        self.is_frame_requested = false;
+
+        // Check if surface options changed and reconfigure if needed
+        let current_options = self.egui_app.surface_options();
+        let options_changed = current_options != self.last_surface_options;
+        if options_changed {
+            self.last_surface_options = current_options;
+            self.reconfigure_surface();
+        }
+
         trace!("Rendering surface {}", self.wl_surface.id());
         let surface_texture = self
             .surface
@@ -193,7 +267,7 @@ impl<A: EguiAppData> EguiSurfaceState<A> {
                     resolve_target: None,
                     depth_slice: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        load: wgpu::LoadOp::Clear(self.last_surface_options.clear_color),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -215,7 +289,7 @@ impl<A: EguiAppData> EguiSurfaceState<A> {
             pixels_per_point: self.physical_scale() as f32,
         };
 
-        let platform_output = self.renderer.end_frame_and_draw(
+        let render_output = self.renderer.end_frame_and_draw(
             &self.device,
             &self.queue,
             &mut encoder,
@@ -223,32 +297,69 @@ impl<A: EguiAppData> EguiSurfaceState<A> {
             screen_descriptor,
         );
 
-        for command in &platform_output.commands {
+        for command in &render_output.platform_output.commands {
             self.input_state.handle_output_command(command);
         }
+
+        // Update cursor shape based on egui's request
+        get_app().set_cursor(egui_to_cursor_shape(
+            render_output.platform_output.cursor_icon,
+        ));
 
         self.queue.submit(Some(encoder.finish()));
         surface_texture.present();
 
-        // Only request next frame if there are events (similar to windowed.rs behavior)
-        if !platform_output.events.is_empty() {
+        // Apply input region for click-through support (only when changed)
+        let current_regions = self.egui_app.input_regions();
+        let regions_changed = current_regions != self.last_input_regions;
+        if regions_changed {
+            if let Some(ref regions) = current_regions {
+                let app = get_app();
+                let region = app
+                    .compositor_state
+                    .wl_compositor()
+                    .create_region(&app.qh, ());
+                for (x, y, w, h) in regions {
+                    region.add(*x, *y, *w, *h);
+                }
+                self.wl_surface.set_input_region(Some(&region));
+                region.destroy();
+            }
+            self.last_input_regions = current_regions;
+        }
+
+        // ! TODO! This immediatly schedules a rerender if repaint_delay != max, even if that should be, say, 10 seconds.
+        // Request next frame if:
+        // - egui needs a repaint (animation, cursor blink, etc.) via repaint_delay
+        // - there are output events (interactions occurred)
+        // Apps that want continuous animation should call ctx.request_repaint() in their ui()
+        let needs_repaint = render_output.repaint_delay != std::time::Duration::MAX
+            || !render_output.platform_output.events.is_empty();
+        let request_frame = needs_repaint && !self.is_frame_requested;
+        if request_frame {
+            self.is_frame_requested = true;
             self.wl_surface
                 .frame(&self.queue_handle, self.wl_surface.clone());
+        }
+        // Commit if anything changed
+        if request_frame || regions_changed || options_changed {
             self.wl_surface.commit();
         }
-        platform_output
+
+        render_output
     }
 
     fn reconfigure_surface(&mut self) {
         let width = self.width.saturating_mul(self.physical_scale()).max(1);
         let height = self.height.saturating_mul(self.physical_scale()).max(1);
+        let options = &self.last_surface_options;
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: self.output_format,
             width,
             height,
-            present_mode: wgpu::PresentMode::Mailbox,
-            alpha_mode: wgpu::CompositeAlphaMode::Auto,
+            present_mode: options.present_mode,
+            alpha_mode: options.alpha_mode,
             view_formats: vec![self.output_format],
             desired_maximum_frame_latency: 2,
         };

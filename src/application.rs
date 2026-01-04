@@ -59,6 +59,7 @@ use wayland_client::globals::registry_queue_init;
 use wayland_client::protocol::wl_keyboard::WlKeyboard;
 use wayland_client::protocol::wl_output;
 use wayland_client::protocol::wl_pointer::WlPointer;
+use wayland_client::protocol::wl_region::WlRegion;
 use wayland_client::protocol::wl_seat;
 use wayland_client::protocol::wl_surface::WlSurface;
 use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::Shape;
@@ -822,6 +823,30 @@ impl ProvidesRegistryState for Application {
     }
 }
 
+// Required Dispatch impl for WlRegion to support click-through/input region
+// functionality.
+//
+// In wayland-client, every protocol object needs a Dispatch implementation,
+// even if it has no events. WlRegion is used in egui_containers.rs (around line
+// 299) where `create_region()` is called to define which parts of a transparent
+// surface should receive input events (for click-through overlay support).
+//
+// WlRegion is a stateless object: you create it, add rectangles, assign it to a
+// surface's input region, then destroy it. It never emits any events.
+impl wayland_client::Dispatch<WlRegion, ()> for Application {
+    fn event(
+        _state: &mut Self,
+        _proxy: &WlRegion,
+        _event: <WlRegion as wayland_client::Proxy>::Event,
+        _data: &(),
+        _conn: &Connection,
+        _qhandle: &QueueHandle<Self>,
+    ) {
+        // WlRegion has no events - this impl exists only to satisfy
+        // wayland-client's requirement that all protocol objects have a
+        // Dispatch implementation.
+    }
+}
 
 delegate_compositor!(Application);
 delegate_subcompositor!(Application);

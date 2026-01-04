@@ -7,3 +7,5 @@ pub use application::*;
 pub use containers::*;
 pub use egui::*;
 pub use single_color::*;
+// Re-export wgpu types needed for SurfaceOptions configuration
+pub use wgpu::{Color as WgpuColor, CompositeAlphaMode, PresentMode};

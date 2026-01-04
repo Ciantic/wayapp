@@ -15,6 +15,15 @@ use egui_wgpu::wgpu::Queue;
 use egui_wgpu::wgpu::StoreOp;
 use egui_wgpu::wgpu::TextureFormat;
 use egui_wgpu::wgpu::TextureView;
+use std::time::Duration;
+
+/// Output from rendering a frame, including repaint scheduling info
+pub struct RenderOutput {
+    pub platform_output: egui::PlatformOutput,
+    /// How long to wait before next repaint. Duration::ZERO means repaint ASAP.
+    /// Duration::MAX (or very large) means no repaint needed until next input event.
+    pub repaint_delay: Duration,
+}
 
 pub struct EguiWgpuRenderer {
     context: Context,
@@ -73,7 +82,7 @@ impl EguiWgpuRenderer {
         encoder: &mut CommandEncoder,
         window_surface_view: &TextureView,
         screen_descriptor: ScreenDescriptor,
-    ) -> egui::PlatformOutput {
+    ) -> RenderOutput {
         if !self.frame_started {
             panic!("begin_frame must be called before end_frame_and_draw can be called!");
         }
@@ -81,6 +90,14 @@ impl EguiWgpuRenderer {
         self.ppp(screen_descriptor.pixels_per_point);
 
         let full_output = self.context.end_pass();
+
+        // Extract repaint delay from viewport output
+        let repaint_delay = full_output
+            .viewport_output
+            .values()
+            .next()
+            .map(|v| v.repaint_delay)
+            .unwrap_or(Duration::MAX);
 
         let tris = self
             .context
@@ -115,6 +132,9 @@ impl EguiWgpuRenderer {
 
         self.frame_started = false;
 
-        full_output.platform_output
+        RenderOutput {
+            platform_output: full_output.platform_output,
+            repaint_delay,
+        }
     }
 }
