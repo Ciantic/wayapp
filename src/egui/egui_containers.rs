@@ -70,6 +70,9 @@ impl SurfaceOptions {
 }
 
 pub trait EguiAppData {
+    /// called once, when the egui app is first created
+    fn init(&mut self, ctx: &egui::Context) {}
+
     fn ui(&mut self, ctx: &egui::Context);
 
     /// Return input regions (clickable areas). If None, entire surface receives
@@ -104,12 +107,13 @@ struct EguiSurfaceState<A: EguiAppData> {
     output_format: wgpu::TextureFormat,
     last_input_regions: Option<Vec<InputRect>>,
     last_surface_options: SurfaceOptions,
-    /// was a new frame already requested? Set by e.g. mouse events, cleared on render
+    /// was a new frame already requested? Set by e.g. mouse events, cleared on
+    /// render
     is_frame_requested: bool,
 }
 
 impl<A: EguiAppData> EguiSurfaceState<A> {
-    fn new(wl_surface: WlSurface, egui_app: A) -> Self {
+    fn new(wl_surface: WlSurface, mut egui_app: A) -> Self {
         let app = get_app();
         let raw_display_handle = RawDisplayHandle::Wayland(WaylandDisplayHandle::new(
             NonNull::new(app.conn.backend().display_ptr() as *mut _)
@@ -155,6 +159,8 @@ impl<A: EguiAppData> EguiSurfaceState<A> {
         let clipboard = unsafe { Clipboard::new(app.conn.display().id().as_ptr() as *mut _) };
         let input_state = WaylandToEguiInput::new(clipboard);
 
+        egui_app.init(renderer.context());
+
         Self {
             wl_surface,
             // instance,
@@ -190,7 +196,8 @@ impl<A: EguiAppData> EguiSurfaceState<A> {
     }
 
     /// Request a frame callback to ensure pending input gets processed.
-    /// This is needed when input arrives while idle (no frame callback pending).
+    /// This is needed when input arrives while idle (no frame callback
+    /// pending).
     fn request_frame(&mut self) {
         if self.is_frame_requested {
             return;
@@ -328,11 +335,12 @@ impl<A: EguiAppData> EguiSurfaceState<A> {
             self.last_input_regions = current_regions;
         }
 
-        // ! TODO! This immediatly schedules a rerender if repaint_delay != max, even if that should be, say, 10 seconds.
-        // Request next frame if:
+        // ! TODO! This immediatly schedules a rerender if repaint_delay != max, even if
+        // that should be, say, 10 seconds. Request next frame if:
         // - egui needs a repaint (animation, cursor blink, etc.) via repaint_delay
         // - there are output events (interactions occurred)
-        // Apps that want continuous animation should call ctx.request_repaint() in their ui()
+        // Apps that want continuous animation should call ctx.request_repaint() in
+        // their ui()
         let needs_repaint = render_output.repaint_delay != std::time::Duration::MAX
             || !render_output.platform_output.events.is_empty();
         let request_frame = needs_repaint && !self.is_frame_requested;

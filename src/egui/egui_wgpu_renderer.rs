@@ -21,7 +21,8 @@ use std::time::Duration;
 pub struct RenderOutput {
     pub platform_output: egui::PlatformOutput,
     /// How long to wait before next repaint. Duration::ZERO means repaint ASAP.
-    /// Duration::MAX (or very large) means no repaint needed until next input event.
+    /// Duration::MAX (or very large) means no repaint needed until next input
+    /// event.
     pub repaint_delay: Duration,
 }
 
