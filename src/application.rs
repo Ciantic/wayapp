@@ -2,6 +2,7 @@ use crate::LayerSurfaceContainer;
 use crate::PopupContainer;
 use crate::SubsurfaceContainer;
 use crate::WindowContainer;
+use log::info;
 use log::trace;
 use smithay_client_toolkit::compositor::CompositorHandler;
 use smithay_client_toolkit::compositor::CompositorState;
@@ -65,6 +66,20 @@ use wayland_client::protocol::wl_surface::WlSurface;
 use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::Shape;
 use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::WpCursorShapeDeviceV1;
 
+/// Callback for output events (add/remove)
+pub type OutputCallback = Box<dyn FnMut(OutputEvent)>;
+
+/// Output event types for hot-plug support
+#[derive(Debug, Clone)]
+pub enum OutputEvent {
+    /// A new output was added
+    Added(wl_output::WlOutput),
+    /// An output was updated (e.g., resolution change)
+    Updated(wl_output::WlOutput),
+    /// An output was removed
+    Removed(wl_output::WlOutput),
+}
+
 /// Enum representing the kind of surface container stored in the application
 enum Kind {
     Window(Box<dyn WindowContainer>),
@@ -126,6 +141,8 @@ pub struct Application {
     pointer_shape_devices: HashMap<ObjectId, WpCursorShapeDeviceV1>,
     /// Currently focused keyboard surface
     keyboard_focused_surface: Option<ObjectId>,
+    /// Callback for output events (hot-plug support)
+    output_callback: Vec<OutputCallback>,
 }
 
 impl Application {
@@ -149,6 +166,9 @@ impl Application {
             CursorShapeManager::bind(&globals, &qh).expect("cursor shape manager not available");
         let clipboard = unsafe { Clipboard::new(conn.display().id().as_ptr() as *mut _) };
 
+        // Note: initally, output state is empty!
+        let output_state = OutputState::new(&globals, &qh);
+
         Self {
             event_queue: Some(event_queue),
             conn,
@@ -156,7 +176,7 @@ impl Application {
             subcompositor_state,
             registry_state: RegistryState::new(&globals),
             seat_state: SeatState::new(&globals, &qh),
-            output_state: OutputState::new(&globals, &qh),
+            output_state,
             shm_state,
             compositor_state,
             xdg_shell,
@@ -174,7 +194,30 @@ impl Application {
             last_pointer: None,
             pointer_shape_devices: HashMap::new(),
             keyboard_focused_surface: None,
+            output_callback: vec![],
         }
+    }
+
+    /// Set a callback to be notified of output events (add/update/remove)
+    /// This is useful for multi-monitor support with hot-plug.
+    pub fn set_output_callback<F>(&mut self, callback: F)
+    where
+        F: FnMut(OutputEvent) + 'static,
+    {
+        self.output_callback.push(Box::new(callback));
+    }
+
+    /// Get an iterator over all currently connected outputs
+    pub fn outputs(&self) -> impl Iterator<Item = wl_output::WlOutput> + '_ {
+        self.output_state.outputs()
+    }
+
+    /// Get information about a specific output
+    pub fn output_info(
+        &self,
+        output: &wl_output::WlOutput,
+    ) -> Option<smithay_client_toolkit::output::OutputInfo> {
+        self.output_state.info(output)
     }
 
     pub fn run_blocking(&mut self) {
@@ -423,24 +466,36 @@ impl OutputHandler for Application {
         &mut self,
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
-        _output: wl_output::WlOutput,
+        output: wl_output::WlOutput,
     ) {
+        info!("[OUTPUT] New output detected: {:?}", output.id());
+        for callback in &mut self.output_callback {
+            callback(OutputEvent::Added(output.clone()));
+        }
     }
 
     fn update_output(
         &mut self,
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
-        _output: wl_output::WlOutput,
+        output: wl_output::WlOutput,
     ) {
+        info!("[OUTPUT] Output updated: {:?}", output.id());
+        for callback in &mut self.output_callback {
+            callback(OutputEvent::Updated(output.clone()));
+        }
     }
 
     fn output_destroyed(
         &mut self,
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
-        _output: wl_output::WlOutput,
+        output: wl_output::WlOutput,
     ) {
+        info!("[OUTPUT] Output destroyed: {:?}", output.id());
+        for callback in &mut self.output_callback {
+            callback(OutputEvent::Removed(output.clone()));
+        }
     }
 }
 
