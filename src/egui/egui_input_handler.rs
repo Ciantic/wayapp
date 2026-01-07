@@ -93,10 +93,28 @@ impl WaylandToEguiInput {
                 ..
             } => {
                 // Handle scroll events
-                let scroll_delta = egui::vec2(
-                    horizontal.discrete as f32 * 10.0,
-                    vertical.discrete as f32 * 10.0,
-                );
+                // Try value120 first (high-resolution), then absolute (pixels), then discrete (legacy)
+                let h_scroll = if horizontal.value120 != 0 {
+                    // value120: 120 = one logical scroll step
+                    horizontal.value120 as f32 / 120.0
+                } else if horizontal.absolute != 0.0 {
+                    // absolute is in pixels, convert to reasonable scroll units
+                    horizontal.absolute as f32 / 20.0
+                } else {
+                    horizontal.discrete as f32
+                };
+
+                let v_scroll = if vertical.value120 != 0 {
+                    vertical.value120 as f32 / 120.0
+                } else if vertical.absolute != 0.0 {
+                    vertical.absolute as f32 / 20.0
+                } else {
+                    vertical.discrete as f32
+                };
+
+                // Negate Y to match egui's scroll convention
+                // (positive Y = scroll content up, which matches "natural" scrolling feel)
+                let scroll_delta = egui::vec2(h_scroll, -v_scroll);
 
                 if scroll_delta != egui::Vec2::ZERO {
                     self.events.push(Event::MouseWheel {

@@ -62,7 +62,6 @@ enum AppEvent {
     TimerTick(u32),
 }
 
-
 // #[tokio::main(flavor = "current_thread")]
 #[tokio::main]
 async fn main() {
@@ -113,11 +112,15 @@ async fn main() {
         loop {
             tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
             tick += 1;
-            println!("[ASYNC TASK] Timer tick {} on thread {:?}", tick, std::thread::current().id());
+            println!(
+                "[ASYNC TASK] Timer tick {} on thread {:?}",
+                tick,
+                std::thread::current().id()
+            );
             let _ = tx_clone.send(AppEvent::TimerTick(tick));
         }
     });
-    
+
     let mut event_queue = app.event_queue.take().unwrap();
     loop {
         select! {
@@ -138,7 +141,7 @@ async fn main() {
             Some(event) = rx.recv() => {
                 match event {
                     AppEvent::TimerTick(tick) => {
-                        println!("[ASYNC MAIN] ✓ Received timer tick: {} on thread {:?}", 
+                        println!("[ASYNC MAIN] ✓ Received timer tick: {} on thread {:?}",
                             tick, std::thread::current().id());
                     }
                 }
