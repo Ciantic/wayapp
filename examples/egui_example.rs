@@ -74,18 +74,38 @@ fn main() {
     let egui_app = EguiApp::default();
     app.push_window(EguiWindow::new(example_window, egui_app, 256, 256));
 
+    // Example layer surface --------------------------
+
+    // Get the first monitor/output
+    let first_monitor = app
+        .output_state
+        .outputs()
+        .collect::<Vec<_>>()
+        .get(0)
+        .cloned();
     let shared_surface = app.compositor_state.create_surface(&app.qh);
     let layer_surface = app.layer_shell.create_layer_surface(
         &app.qh,
         shared_surface.clone(),
         Layer::Top,
         Some("Example2"),
-        None,
+        first_monitor.as_ref(),
     );
     layer_surface.set_keyboard_interactivity(KeyboardInteractivity::Exclusive);
     layer_surface.set_anchor(Anchor::BOTTOM | Anchor::LEFT);
     layer_surface.set_margin(0, 0, 20, 20);
     layer_surface.set_size(256, 256);
+
+    // Restrict mouse inputs to a 50x50 box at (20,20)
+    /*
+    let region = app
+        .compositor_state
+        .wl_compositor()
+        .create_region(&app.qh, ());
+    region.add(20, 20, 150, 150);
+    layer_surface.set_input_region(Some(&region));
+    */
+
     layer_surface.commit();
 
     let egui_layer_surface = EguiLayerSurface::new(layer_surface, EguiApp::default(), 256, 256);

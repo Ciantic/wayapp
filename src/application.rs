@@ -52,6 +52,7 @@ use std::collections::HashMap;
 use std::mem::MaybeUninit;
 use wayland_backend::client::ObjectId;
 use wayland_client::Connection;
+use wayland_client::Dispatch;
 use wayland_client::EventQueue;
 use wayland_client::Proxy;
 use wayland_client::QueueHandle;
@@ -59,6 +60,7 @@ use wayland_client::globals::registry_queue_init;
 use wayland_client::protocol::wl_keyboard::WlKeyboard;
 use wayland_client::protocol::wl_output;
 use wayland_client::protocol::wl_pointer::WlPointer;
+use wayland_client::protocol::wl_region::WlRegion;
 use wayland_client::protocol::wl_seat;
 use wayland_client::protocol::wl_surface::WlSurface;
 use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::Shape;
@@ -822,6 +824,17 @@ impl ProvidesRegistryState for Application {
     }
 }
 
+impl Dispatch<WlRegion, ()> for Application {
+    fn event(
+        _state: &mut Self,
+        _proxy: &WlRegion,
+        _event: <WlRegion as wayland_client::Proxy>::Event,
+        _data: &(),
+        _conn: &Connection,
+        _qhandle: &QueueHandle<Self>,
+    ) {
+    }
+}
 
 delegate_compositor!(Application);
 delegate_subcompositor!(Application);
