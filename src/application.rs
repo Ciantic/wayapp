@@ -13,6 +13,7 @@ use smithay_client_toolkit::delegate_pointer;
 use smithay_client_toolkit::delegate_registry;
 use smithay_client_toolkit::delegate_seat;
 use smithay_client_toolkit::delegate_shm;
+use smithay_client_toolkit::delegate_simple;
 use smithay_client_toolkit::delegate_subcompositor;
 use smithay_client_toolkit::delegate_xdg_popup;
 use smithay_client_toolkit::delegate_xdg_shell;
@@ -21,6 +22,7 @@ use smithay_client_toolkit::output::OutputHandler;
 use smithay_client_toolkit::output::OutputState;
 use smithay_client_toolkit::registry::ProvidesRegistryState;
 use smithay_client_toolkit::registry::RegistryState;
+use smithay_client_toolkit::registry::SimpleGlobal;
 use smithay_client_toolkit::registry_handlers;
 use smithay_client_toolkit::seat::Capability;
 use smithay_client_toolkit::seat::SeatHandler;
@@ -52,6 +54,7 @@ use std::collections::HashMap;
 use std::mem::MaybeUninit;
 use wayland_backend::client::ObjectId;
 use wayland_client::Connection;
+use wayland_client::Dispatch;
 use wayland_client::EventQueue;
 use wayland_client::Proxy;
 use wayland_client::QueueHandle;
@@ -65,6 +68,9 @@ use wayland_client::protocol::wl_subsurface::WlSubsurface;
 use wayland_client::protocol::wl_surface::WlSurface;
 use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::Shape;
 use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::WpCursorShapeDeviceV1;
+use wayland_protocols::wp::viewporter::client::wp_viewport::WpViewport;
+use wayland_protocols::wp::viewporter::client::wp_viewport::{self};
+use wayland_protocols::wp::viewporter::client::wp_viewporter::WpViewporter;
 
 /// Enum representing the kind of surface container stored in the application
 // enum Kind {
@@ -149,6 +155,7 @@ pub struct Application {
     // surfaces_by_id: HashMap<ObjectId, Kind>,
     pub clipboard: Clipboard,
 
+    pub viewporter: SimpleGlobal<WpViewporter, 1>,
     cursor_shape_manager: CursorShapeManager,
 
     /// For cursor set_shape to work serial parameter must match the latest
@@ -181,6 +188,8 @@ impl Application {
         let layer_shell = LayerShell::bind(&globals, &qh).expect("layer shell not available");
         let cursor_shape_manager =
             CursorShapeManager::bind(&globals, &qh).expect("cursor shape manager not available");
+        let viewporter = SimpleGlobal::<WpViewporter, 1>::bind(&globals, &qh)
+            .expect("wp_viewporter not available");
         let clipboard = unsafe { Clipboard::new(conn.display().id().as_ptr() as *mut _) };
 
         Self {
@@ -204,6 +213,7 @@ impl Application {
             // windows: Vec::new(),
             // layer_surfaces: Vec::new(),
             clipboard,
+            viewporter,
             cursor_shape_manager,
             last_pointer_enter_serial: None,
             last_pointer: None,
@@ -919,3 +929,23 @@ delegate_xdg_shell!(Application);
 delegate_xdg_window!(Application);
 delegate_xdg_popup!(Application);
 delegate_registry!(Application);
+delegate_simple!(Application, WpViewporter, 1);
+
+impl AsMut<SimpleGlobal<WpViewporter, 1>> for Application {
+    fn as_mut(&mut self) -> &mut SimpleGlobal<WpViewporter, 1> {
+        &mut self.viewporter
+    }
+}
+
+impl Dispatch<WpViewport, ()> for Application {
+    fn event(
+        _: &mut Application,
+        _: &WpViewport,
+        _: wp_viewport::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        // No events expected from wp_viewport
+    }
+}

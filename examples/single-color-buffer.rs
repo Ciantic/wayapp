@@ -10,6 +10,7 @@ use wayapp::*;
 use wayland_client::Proxy;
 
 fn main() {
+    unsafe { std::env::set_var("RUST_LOG", "wayapp=trace") };
     env_logger::init();
     let mut app = Application::new();
     let mut single_color_manager = SingleColorManager::new();
@@ -27,7 +28,7 @@ fn main() {
     example_layer_surface.set_margin(0, 0, 20, 20);
     example_layer_surface.set_size(256, 256);
     example_layer_surface.commit();
-    single_color_manager.push(&example_layer_surface, (None, (255, 0, 0)));
+    single_color_manager.push(&example_layer_surface, (None, None, (255, 0, 0)));
 
     let surface2 = app.compositor_state.create_surface(&app.qh);
 
@@ -42,7 +43,7 @@ fn main() {
     example_layer_surface2.set_margin(0, 20, 20, 0);
     example_layer_surface2.set_size(512, 256);
     example_layer_surface2.commit();
-    single_color_manager.push(&example_layer_surface2, (None, (0, 255, 0)));
+    single_color_manager.push(&example_layer_surface2, (None, None, (0, 255, 0)));
 
     // Example window --------------------------
     let example_win_surface = app.compositor_state.create_surface(&app.qh);
@@ -55,7 +56,7 @@ fn main() {
     example_window.set_app_id("io.github.ciantic.wayapp.SingleColorExample");
     example_window.set_min_size(Some((256, 256)));
     example_window.commit();
-    single_color_manager.push(&example_window, (None, (0, 0, 255)));
+    single_color_manager.push(&example_window, (None, None, (0, 0, 255)));
 
     // Example child window --------------------------
     // Create a surface for the child window
@@ -70,7 +71,7 @@ fn main() {
     child_window.set_app_id("io.github.ciantic.wayapp.SingleColorExample.Child");
     child_window.set_min_size(Some((128, 128)));
     child_window.commit();
-    single_color_manager.push(&child_window, (None, (255, 0, 255)));
+    single_color_manager.push(&child_window, (None, None, (255, 0, 255)));
 
     // Example subsurface --------------------------
     let (subsurface, sub_wlsurface) = app
@@ -87,7 +88,7 @@ fn main() {
             subsurface.clone(),
             sub_wlsurface.clone(),
         ),
-        (None, (128, 255, 0)),
+        (None, None, (128, 255, 0)),
     );
 
     // app.push_subsurface(sub_example);
@@ -106,7 +107,7 @@ fn main() {
         &app.xdg_shell,
     )
     .unwrap();
-    single_color_manager.push(&popup, (None, (255, 255, 0)));
+    single_color_manager.push(&popup, (None, None, (255, 255, 0)));
 
     trace!("Starting event loop for common example");
     drop(example_window);

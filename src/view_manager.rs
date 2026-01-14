@@ -30,6 +30,15 @@ impl Kind {
         }
     }
 
+    pub fn get_wl_surface(&self) -> &WlSurface {
+        match self {
+            Kind::Window(window) => window.wl_surface(),
+            Kind::LayerSurface(layer_surface) => layer_surface.wl_surface(),
+            Kind::Popup(popup) => popup.wl_surface(),
+            Kind::Subsurface { surface, .. } => surface,
+        }
+    }
+
     pub fn is_window(&self, other: &Window) -> bool {
         match self {
             Kind::Window(_) => self.get_object_id() == other.wl_surface().id(),
