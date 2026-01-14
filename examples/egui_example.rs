@@ -5,10 +5,7 @@ use smithay_client_toolkit::shell::wlr_layer::Anchor;
 use smithay_client_toolkit::shell::wlr_layer::KeyboardInteractivity;
 use smithay_client_toolkit::shell::wlr_layer::Layer;
 use smithay_client_toolkit::shell::xdg::window::WindowDecorations;
-use wayapp::EguiAppData;
-use wayapp::EguiLayerSurface;
-use wayapp::EguiWindow;
-use wayapp::get_init_app;
+use wayapp::*;
 
 struct EguiApp {
     counter: i32,
@@ -57,7 +54,8 @@ impl EguiAppData for EguiApp {
 
 fn main() {
     env_logger::init();
-    let app = get_init_app();
+    let mut app = Application::new();
+    let mut egui_manager = EguiViewManager::new();
 
     // Example window --------------------------
     let example_win_surface = app.compositor_state.create_surface(&app.qh);
@@ -71,9 +69,9 @@ fn main() {
     example_window.set_min_size(Some((256, 256)));
     example_window.commit();
 
-    let egui_app = EguiApp::default();
-    app.push_window(EguiWindow::new(example_window, egui_app, 256, 256));
+    egui_manager.add_window(&app, example_window, EguiApp::default(), 256, 256);
 
+    // Example layer surface --------------------------
     let shared_surface = app.compositor_state.create_surface(&app.qh);
     let layer_surface = app.layer_shell.create_layer_surface(
         &app.qh,
@@ -88,13 +86,16 @@ fn main() {
     layer_surface.set_size(256, 256);
     layer_surface.commit();
 
-    let egui_layer_surface = EguiLayerSurface::new(layer_surface, EguiApp::default(), 256, 256);
+    egui_manager.add_layer_surface(&app, layer_surface, EguiApp::default(), 256, 256);
 
-    app.push_layer_surface(egui_layer_surface);
+    // Run the Wayland event loop
+    let mut event_queue = app.event_queue.take().unwrap();
+    loop {
+        event_queue
+            .blocking_dispatch(&mut app)
+            .expect("Wayland dispatch failed");
 
-    // let shared_layer_surface = Rc::new(RefCell::new();
-
-    // app.push_layer_surface(shared_layer_surface.clone());
-
-    app.run_blocking();
+        let events: Vec<_> = app.wayland_events.drain(..).collect();
+        egui_manager.handle_events(&mut app, &events);
+    }
 }
