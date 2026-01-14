@@ -79,27 +79,27 @@ use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::
 
 // }
 
-pub static mut WAYAPP: MaybeUninit<Application> = MaybeUninit::uninit();
+// pub static mut WAYAPP: MaybeUninit<Application> = MaybeUninit::uninit();
 
-pub fn get_init_app() -> &'static mut Application {
-    // Look behind you! A three-headed monkey!
-    #[allow(static_mut_refs)]
-    unsafe {
-        WAYAPP.write(Application::new())
-    };
-    #[allow(static_mut_refs)]
-    unsafe {
-        WAYAPP.assume_init_mut()
-    }
-}
+// pub fn get_init_app() -> &'static mut Application {
+//     // Look behind you! A three-headed monkey!
+//     #[allow(static_mut_refs)]
+//     unsafe {
+//         WAYAPP.write(Application::new())
+//     };
+//     #[allow(static_mut_refs)]
+//     unsafe {
+//         WAYAPP.assume_init_mut()
+//     }
+// }
 
-pub fn get_app<'a>() -> &'a mut Application {
-    // Look behind you! A three-headed monkey!
-    #[allow(static_mut_refs)]
-    unsafe {
-        WAYAPP.assume_init_mut()
-    }
-}
+// pub fn get_app<'a>() -> &'a mut Application {
+//     // Look behind you! A three-headed monkey!
+//     #[allow(static_mut_refs)]
+//     unsafe {
+//         WAYAPP.assume_init_mut()
+//     }
+// }
 
 /// Enum representing different Wayland events
 ///

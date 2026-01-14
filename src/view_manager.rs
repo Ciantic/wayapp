@@ -1,23 +1,11 @@
 ///! View manager for different kinds of surfaces
-use crate::Application;
-use crate::BaseTrait;
-use crate::get_app;
 use egui::ahash::HashMap;
-use log::trace;
 use smithay_client_toolkit::shell::WaylandSurface;
 use smithay_client_toolkit::shell::wlr_layer::LayerSurface;
-use smithay_client_toolkit::shell::wlr_layer::LayerSurfaceConfigure;
 use smithay_client_toolkit::shell::xdg::popup::Popup;
-use smithay_client_toolkit::shell::xdg::popup::PopupConfigure;
 use smithay_client_toolkit::shell::xdg::window::Window;
-use smithay_client_toolkit::shell::xdg::window::WindowConfigure;
-use smithay_client_toolkit::shm::Shm;
-use smithay_client_toolkit::shm::slot::SlotPool;
-use std::num::NonZero;
 use wayland_backend::client::ObjectId;
 use wayland_client::Proxy;
-use wayland_client::QueueHandle;
-use wayland_client::protocol::wl_shm;
 use wayland_client::protocol::wl_subsurface::WlSubsurface;
 use wayland_client::protocol::wl_surface::WlSurface;
 

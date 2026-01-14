@@ -6,14 +6,13 @@ use smithay_client_toolkit::shell::xdg::XdgPositioner;
 use smithay_client_toolkit::shell::xdg::XdgSurface;
 use smithay_client_toolkit::shell::xdg::popup::Popup;
 use smithay_client_toolkit::shell::xdg::window::WindowDecorations;
-use std::borrow::BorrowMut;
 use wayapp::*;
 use wayland_client::Proxy;
 
 fn main() {
     env_logger::init();
-    let app = get_init_app();
-    let mut single_color_manager = SingleColorManager::default();
+    let mut app = Application::new();
+    let mut single_color_manager = SingleColorManager::new();
 
     let surface1 = app.compositor_state.create_surface(&app.qh);
 
@@ -116,11 +115,11 @@ fn main() {
     let mut event_queue = app.event_queue.take().unwrap();
     loop {
         event_queue
-            .blocking_dispatch(app)
+            .blocking_dispatch(&mut app)
             .expect("Wayland dispatch failed");
-        app.wayland_events.drain(..).for_each(|event| {
-            single_color_manager.handle_events(&[event])
-            //
-        });
+        let events: Vec<_> = app.wayland_events.drain(..).collect();
+        for event in events {
+            single_color_manager.handle_events(&app, &[event])
+        }
     }
 }

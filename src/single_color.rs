@@ -13,7 +13,6 @@ use crate::SubsurfaceContainer;
 use crate::ViewManager;
 use crate::WaylandEvent;
 use crate::WindowContainer;
-use crate::get_app;
 use egui::ahash::HashMap;
 use log::trace;
 use smithay_client_toolkit::shell::WaylandSurface;
@@ -25,7 +24,9 @@ use smithay_client_toolkit::shell::xdg::window::Window;
 use smithay_client_toolkit::shell::xdg::window::WindowConfigure;
 use smithay_client_toolkit::shm::Shm;
 use smithay_client_toolkit::shm::slot::SlotPool;
+use std::cell::RefCell;
 use std::num::NonZero;
+use std::rc::Rc;
 use wayland_backend::client::ObjectId;
 use wayland_client::Proxy;
 use wayland_client::QueueHandle;
@@ -54,11 +55,15 @@ impl std::ops::DerefMut for SingleColorManager {
 }
 
 impl SingleColorManager {
-    fn configure(&mut self, surface: &WlSurface, width: u32, height: u32) {
+    pub fn new() -> Self {
+        Self {
+            view_manager: ViewManager::default(),
+        }
+    }
+
+    fn configure(&mut self, app: &Application, surface: &WlSurface, width: u32, height: u32) {
         // Configuration logic if needed
         if let Some((pool, color)) = self.view_manager.get_data_by_id_mut(&surface.id()) {
-            let app = get_app();
-
             let pool = pool.get_or_insert_with(|| {
                 SlotPool::new((width * height * 4).try_into().unwrap(), &app.shm_state)
                     .expect("Failed to create SlotPool")
@@ -67,29 +72,23 @@ impl SingleColorManager {
             single_color_example_buffer_configure(pool, surface, &app.qh, width, height, *color);
         }
 
+        let surface_id = surface.id();
+        let shm_state = &app.shm_state;
+        let qh = &app.qh;
         self.view_manager.execute_recursively_to_all_subsurfaces(
             &surface,
-            |_subsurface, sub_wlsurface, (pool_opt, color)| {
-                let app = get_app();
-                trace!("Configuring subsurfaces of surface id: {:?}", surface.id());
-
+            move |_subsurface, sub_wlsurface, (pool_opt, color)| {
+                trace!("Configuring subsurfaces of surface id: {:?}", surface_id);
                 let pool = pool_opt.get_or_insert_with(|| {
-                    SlotPool::new((width * height * 4).try_into().unwrap(), &app.shm_state)
+                    SlotPool::new((width * height * 4).try_into().unwrap(), shm_state)
                         .expect("Failed to create SlotPool")
                 });
-                single_color_example_buffer_configure(
-                    pool,
-                    sub_wlsurface,
-                    &app.qh,
-                    100,
-                    30,
-                    *color,
-                );
+                single_color_example_buffer_configure(pool, sub_wlsurface, qh, 100, 30, *color);
             },
         );
     }
 
-    pub fn handle_events(&mut self, events: &[WaylandEvent]) {
+    pub fn handle_events(&mut self, app: &Application, events: &[WaylandEvent]) {
         for event in events {
             match event {
                 WaylandEvent::WindowConfigure(window, configure) => {
@@ -103,17 +102,17 @@ impl SingleColorManager {
                         .1
                         .unwrap_or_else(|| NonZero::new(256).unwrap())
                         .get();
-                    self.configure(&window.wl_surface(), width, height);
+                    self.configure(app, &window.wl_surface(), width, height);
                 }
                 WaylandEvent::LayerShellConfigure(layer_surface, config) => {
                     let width = config.new_size.0;
                     let height = config.new_size.1;
-                    self.configure(&layer_surface.wl_surface(), width, height);
+                    self.configure(app, &layer_surface.wl_surface(), width, height);
                 }
                 WaylandEvent::PopupConfigure(popup, config) => {
                     let width = config.width as u32;
                     let height = config.height as u32;
-                    self.configure(&popup.wl_surface(), width, height);
+                    self.configure(app, &popup.wl_surface(), width, height);
                 }
                 _ => {}
             }
