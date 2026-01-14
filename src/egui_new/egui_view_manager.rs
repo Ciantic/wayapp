@@ -15,6 +15,7 @@ use egui::PlatformOutput;
 use egui::PointerButton;
 use egui::Pos2;
 use egui::RawInput;
+use egui::ahash::HashMap;
 use egui_wgpu::Renderer;
 use egui_wgpu::RendererOptions;
 use egui_wgpu::ScreenDescriptor;
@@ -37,11 +38,14 @@ use smithay_client_toolkit::shell::xdg::window::Window;
 use smithay_clipboard::Clipboard;
 use std::num::NonZero;
 use std::ptr::NonNull;
+use std::time::Duration;
 use std::time::Instant;
+use wayland_backend::client::ObjectId;
 use wayland_client::Proxy;
 use wayland_client::QueueHandle;
 use wayland_client::protocol::wl_surface::WlSurface;
 use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::Shape;
+use wayland_protocols::wp::viewporter::client::wp_viewport::WpViewport;
 
 /// Trait that applications must implement to provide EGUI UI
 pub trait EguiAppData {
@@ -310,6 +314,7 @@ impl EguiWgpuRenderer {
 
 /// Surface-specific EGUI state
 struct EguiSurfaceState<A: EguiAppData> {
+    viewport: Option<WpViewport>,
     wl_surface: WlSurface,
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
@@ -323,6 +328,7 @@ struct EguiSurfaceState<A: EguiAppData> {
     scale_factor: i32,
     surface_config: Option<wgpu::SurfaceConfiguration>,
     output_format: wgpu::TextureFormat,
+    last_buffer_update: Option<Instant>,
 }
 
 impl<A: EguiAppData> EguiSurfaceState<A> {
@@ -373,6 +379,7 @@ impl<A: EguiAppData> EguiSurfaceState<A> {
         let input_state = WaylandToEguiInput::new(clipboard);
 
         Self {
+            viewport: None,
             wl_surface,
             surface,
             device,
@@ -386,10 +393,51 @@ impl<A: EguiAppData> EguiSurfaceState<A> {
             scale_factor: 1,
             surface_config: None,
             output_format,
+            last_buffer_update: None,
         }
     }
 
-    fn configure(&mut self, width: u32, height: u32) {
+    fn configure(&mut self, app: &Application, width: u32, height: u32) {
+        const DEBOUNCE_MS: u64 = 16; // ~60fps, adjust as needed
+
+        let now = Instant::now();
+
+        // Always resize viewport (fast operation)
+        self.resize_viewport(app, width, height);
+
+        // Check if we should update buffers (debounced)
+        let should_update_buffer = if let Some(last_time) = self.last_buffer_update {
+            now.duration_since(last_time) >= Duration::from_millis(DEBOUNCE_MS)
+        } else {
+            true // First configure, always update
+        };
+
+        if should_update_buffer {
+            // Update buffers (slow operation)
+            self.update_buffers(width, height);
+            self.last_buffer_update = Some(now);
+        } else {
+            // Just commit the surface with the new viewport destination
+            self.wl_surface.commit();
+        }
+    }
+
+    fn resize_viewport(&mut self, app: &Application, width: u32, height: u32) {
+        let viewport = self.viewport.get_or_insert_with(|| {
+            trace!(
+                "[EGUI] Creating viewport for surface {:?}",
+                self.wl_surface.id()
+            );
+            app.viewporter
+                .get()
+                .expect("wp_viewporter not available")
+                .get_viewport(&self.wl_surface, &app.qh, ())
+        });
+
+        viewport.set_destination(width as i32, height as i32);
+    }
+
+    fn update_buffers(&mut self, width: u32, height: u32) {
         self.width = width.max(1);
         self.height = height.max(1);
         self.input_state.set_screen_size(self.width, self.height);
@@ -532,7 +580,7 @@ impl<A: EguiAppData> EguiSurfaceState<A> {
 /// EGUI View Manager - manages all EGUI surfaces using the ViewManager pattern
 pub struct EguiViewManager<A: EguiAppData> {
     view_manager: ViewManager<EguiSurfaceState<A>>,
-    keyboard_focused_surface: Option<wayland_backend::client::ObjectId>,
+    keyboard_focused_surface: Option<ObjectId>,
 }
 
 impl<A: EguiAppData> EguiViewManager<A> {
@@ -564,7 +612,7 @@ impl<A: EguiAppData> EguiViewManager<A> {
                         .view_manager
                         .get_data_by_id_mut(&window.wl_surface().id())
                     {
-                        surface_state.configure(width, height);
+                        surface_state.configure(app, width, height);
                     }
                 }
                 WaylandEvent::LayerShellConfigure(layer_surface, config) => {
@@ -575,7 +623,7 @@ impl<A: EguiAppData> EguiViewManager<A> {
                         .view_manager
                         .get_data_by_id_mut(&layer_surface.wl_surface().id())
                     {
-                        surface_state.configure(width, height);
+                        surface_state.configure(app, width, height);
                     }
                 }
                 WaylandEvent::PopupConfigure(popup, config) => {
@@ -586,7 +634,7 @@ impl<A: EguiAppData> EguiViewManager<A> {
                         .view_manager
                         .get_data_by_id_mut(&popup.wl_surface().id())
                     {
-                        surface_state.configure(width, height);
+                        surface_state.configure(app, width, height);
                     }
                 }
                 WaylandEvent::Frame(surface, time) => {
