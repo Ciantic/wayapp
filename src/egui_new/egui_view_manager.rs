@@ -117,7 +117,7 @@ impl<A: EguiAppData> EguiSurfaceState<A> {
             .get(0)
             .unwrap_or(&wgpu::TextureFormat::Bgra8Unorm);
 
-        let renderer = EguiWgpuRenderer::new(&device, output_format, 1);
+        let renderer = EguiWgpuRenderer::new(&device, output_format, None, 1);
         let clipboard = unsafe { Clipboard::new(app.conn.display().id().as_ptr() as *mut _) };
         let input_state = WaylandToEguiInput::new(clipboard);
 
