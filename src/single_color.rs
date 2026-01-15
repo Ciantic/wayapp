@@ -37,9 +37,26 @@ use wayland_client::protocol::wl_surface::WlSurface;
 use wayland_protocols::wp::viewporter::client::wp_viewport::WpViewport;
 use wgpu::wgc::id;
 
+#[derive(Debug, Default)]
+pub struct SingleColorState {
+    slotpool: Option<SlotPool>,
+    viewport: Option<WpViewport>,
+    color: (u8, u8, u8),
+}
+
+impl SingleColorState {
+    pub fn new(color: (u8, u8, u8)) -> Self {
+        Self {
+            slotpool: None,
+            viewport: None,
+            color,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct SingleColorManager {
-    view_manager: ViewManager<(Option<SlotPool>, Option<WpViewport>, (u8, u8, u8))>,
+    view_manager: ViewManager<SingleColorState>,
     // Track last buffer update per surface
     last_buffer_update: HashMap<ObjectId, Instant>,
 }
@@ -55,7 +72,7 @@ impl Default for SingleColorManager {
 
 // Deref to ViewManager
 impl std::ops::Deref for SingleColorManager {
-    type Target = ViewManager<(Option<SlotPool>, Option<WpViewport>, (u8, u8, u8))>;
+    type Target = ViewManager<SingleColorState>;
 
     fn deref(&self) -> &Self::Target {
         &self.view_manager
@@ -79,8 +96,8 @@ impl SingleColorManager {
     fn resize_viewport(&mut self, app: &Application, surface: &WlSurface, width: u32, height: u32) {
         let surface_id = surface.id();
 
-        if let Some((_, viewport, _)) = self.view_manager.get_data_by_id_mut(&surface_id) {
-            let viewport = viewport.get_or_insert_with(|| {
+        if let Some(state) = self.view_manager.get_data_by_id_mut(&surface_id) {
+            let viewport = state.viewport.get_or_insert_with(|| {
                 trace!(
                     "[SINGLE_COLOR] Creating viewport for surface {:?}",
                     surface_id
@@ -100,8 +117,9 @@ impl SingleColorManager {
 
         self.view_manager.execute_recursively_to_all_subsurfaces(
             &surface,
-            move |_subsurface, sub_wlsurface, (_, viewport_opt, _)| {
-                let viewport = viewport_opt
+            move |_subsurface, sub_wlsurface, state| {
+                let viewport = state
+                    .viewport
                     .get_or_insert_with(|| viewporter.get_viewport(sub_wlsurface, qh, ()));
                 viewport.set_destination(100, 30);
             },
@@ -111,17 +129,23 @@ impl SingleColorManager {
     fn update_buffers(&mut self, app: &Application, surface: &WlSurface, width: u32, height: u32) {
         let surface_id = surface.id();
 
-        if let Some((pool, viewport, color)) = self.view_manager.get_data_by_id_mut(&surface_id) {
-            let viewport = viewport.as_ref().expect("Viewport should exist");
+        if let Some(state) = self.view_manager.get_data_by_id_mut(&surface_id) {
+            let viewport = state.viewport.as_ref().expect("Viewport should exist");
 
-            let pool = pool.get_or_insert_with(|| {
+            let pool = state.slotpool.get_or_insert_with(|| {
                 trace!("[SINGLE_COLOR] Creating buffer pool");
                 SlotPool::new((width * height * 4).try_into().unwrap(), &app.shm_state)
                     .expect("Failed to create SlotPool")
             });
 
             single_color_example_buffer_configure(
-                pool, surface, viewport, &app.qh, width, height, *color,
+                pool,
+                surface,
+                viewport,
+                &app.qh,
+                width,
+                height,
+                state.color,
             );
         }
 
@@ -131,10 +155,10 @@ impl SingleColorManager {
 
         self.view_manager.execute_recursively_to_all_subsurfaces(
             &surface,
-            move |_subsurface, sub_wlsurface, (pool_opt, viewport_opt, color)| {
-                let viewport = viewport_opt.as_ref().expect("Viewport should exist");
+            move |_subsurface, sub_wlsurface, state| {
+                let viewport = state.viewport.as_ref().expect("Viewport should exist");
 
-                let pool = pool_opt.get_or_insert_with(|| {
+                let pool = state.slotpool.get_or_insert_with(|| {
                     SlotPool::new((100 * 30 * 4).try_into().unwrap(), shm_state)
                         .expect("Failed to create SlotPool")
                 });
@@ -146,7 +170,7 @@ impl SingleColorManager {
                     qh,
                     100,
                     30,
-                    *color,
+                    state.color,
                 );
             },
         );
