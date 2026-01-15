@@ -153,7 +153,7 @@ impl SingleColorManager {
     }
 
     fn configure(&mut self, app: &Application, surface: &WlSurface, width: u32, height: u32) {
-        const DEBOUNCE_MS: u64 = 16; // ~60fps, adjust as needed
+        const DEBOUNCE_MS: u64 = 32; // ~30fps, adjust as needed
 
         let surface_id = surface.id();
         let now = Instant::now();
