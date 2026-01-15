@@ -6,9 +6,9 @@ use smithay_client_toolkit::shell::wlr_layer::Anchor;
 use smithay_client_toolkit::shell::wlr_layer::KeyboardInteractivity;
 use smithay_client_toolkit::shell::wlr_layer::Layer;
 use smithay_client_toolkit::shell::wlr_layer::LayerSurface;
+use wayapp::Application;
 use wayapp::EguiAppData;
-use wayapp::EguiLayerSurface;
-use wayapp::get_init_app;
+use wayapp::EguiViewManager;
 
 struct EguiApp {
     layer_surface: LayerSurface,
@@ -133,7 +133,8 @@ impl EguiAppData for EguiApp {
 fn main() {
     unsafe { std::env::set_var("RUST_LOG", "debug") };
     env_logger::init();
-    let app = get_init_app();
+    let mut app = Application::new();
+    let mut egui_manager = EguiViewManager::new();
 
     let layer_surface = app.layer_shell.create_layer_surface(
         &app.qh,
@@ -148,9 +149,17 @@ fn main() {
     layer_surface.set_size(512, 512);
     layer_surface.commit();
     let egui_app = EguiApp::new(layer_surface.clone());
-    let egui_layer_surface = EguiLayerSurface::new(layer_surface, egui_app, 256, 256);
 
-    app.push_layer_surface(egui_layer_surface);
+    egui_manager.add_layer_surface(&app, layer_surface, egui_app, 512, 512);
 
-    app.run_blocking();
+    // Run the Wayland event loop
+    let mut event_queue = app.event_queue.take().unwrap();
+    loop {
+        event_queue
+            .blocking_dispatch(&mut app)
+            .expect("Wayland dispatch failed");
+
+        let events: Vec<_> = app.wayland_events.drain(..).collect();
+        egui_manager.handle_events(&mut app, &events);
+    }
 }

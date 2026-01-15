@@ -7,10 +7,9 @@ use smithay_client_toolkit::shell::wlr_layer::Layer;
 use smithay_client_toolkit::shell::xdg::window::WindowDecorations;
 use tokio::select;
 use tokio::task::spawn_blocking;
+use wayapp::Application;
 use wayapp::EguiAppData;
-use wayapp::EguiLayerSurface;
-use wayapp::EguiWindow;
-use wayapp::get_init_app;
+use wayapp::EguiViewManager;
 
 struct EguiApp {
     counter: i32,
@@ -62,13 +61,15 @@ enum AppEvent {
     TimerTick(u32),
 }
 
-
 // #[tokio::main(flavor = "current_thread")]
 #[tokio::main]
 async fn main() {
     unsafe { std::env::set_var("RUST_LOG", "wayapp=trace") };
     env_logger::init();
-    let app = get_init_app();
+    let mut app = Application::new();
+    let mut egui_manager = EguiViewManager::new();
+    let egui_app = EguiApp::default();
+    let egui_app2 = EguiApp::default();
 
     // Create example window
     let example_win_surface = app.compositor_state.create_surface(&app.qh);
@@ -82,8 +83,7 @@ async fn main() {
     example_window.set_min_size(Some((256, 256)));
     example_window.commit();
 
-    let egui_app = EguiApp::default();
-    app.push_window(EguiWindow::new(example_window, egui_app, 256, 256));
+    egui_manager.add_window(&app, example_window, egui_app, 400, 300);
 
     // Create layer surface
     let shared_surface = app.compositor_state.create_surface(&app.qh);
@@ -100,8 +100,7 @@ async fn main() {
     layer_surface.set_size(256, 256);
     layer_surface.commit();
 
-    let egui_layer_surface = EguiLayerSurface::new(layer_surface, EguiApp::default(), 256, 256);
-    app.push_layer_surface(egui_layer_surface);
+    egui_manager.add_layer_surface(&app, layer_surface, egui_app2, 256, 256);
 
     // Create channel for external events
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AppEvent>();
@@ -113,11 +112,15 @@ async fn main() {
         loop {
             tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
             tick += 1;
-            println!("[ASYNC TASK] Timer tick {} on thread {:?}", tick, std::thread::current().id());
+            println!(
+                "[ASYNC TASK] Timer tick {} on thread {:?}",
+                tick,
+                std::thread::current().id()
+            );
             let _ = tx_clone.send(AppEvent::TimerTick(tick));
         }
     });
-    
+
     let mut event_queue = app.event_queue.take().unwrap();
     loop {
         select! {
@@ -131,14 +134,17 @@ async fn main() {
                 }
             }) => {
                 println!("[ASYNC MAIN] ✓ Dispatched Wayland events on thread {:?}", std::thread::current().id());
-                let _ = event_queue.dispatch_pending(app);
+                let _ = event_queue.dispatch_pending(&mut app);
+
+                let events: Vec<_> = app.wayland_events.drain(..).collect();
+                egui_manager.handle_events(&mut app, &events);
             }
 
             // Mock of other async events
             Some(event) = rx.recv() => {
                 match event {
                     AppEvent::TimerTick(tick) => {
-                        println!("[ASYNC MAIN] ✓ Received timer tick: {} on thread {:?}", 
+                        println!("[ASYNC MAIN] ✓ Received timer tick: {} on thread {:?}",
                             tick, std::thread::current().id());
                     }
                 }
