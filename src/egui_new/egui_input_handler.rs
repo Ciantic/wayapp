@@ -158,6 +158,11 @@ impl WaylandToEguiInput {
                 repeat: is_repeat,
                 modifiers: self.modifiers,
             });
+        } else {
+            trace!(
+                "[INPUT] No EGUI key mapping for keysym: {:?}",
+                event.keysym.raw()
+            );
         }
 
         if pressed || is_repeat {
@@ -210,13 +215,20 @@ impl WaylandToEguiInput {
             egui::OutputCommand::CopyText(text) => {
                 self.clipboard.store(text.clone());
             }
-            egui::OutputCommand::CopyImage(_) => {}
-            egui::OutputCommand::OpenUrl(_) => {}
+            egui::OutputCommand::CopyImage(_image) => {
+                // Handle image copy if needed
+                trace!("[INPUT] CopyImage command received (not implemented)");
+                // TODO: Implement image copying to clipboard if required
+            }
+            egui::OutputCommand::OpenUrl(url) => {
+                trace!("[INPUT] OpenUrl command received: {}", url.url);
+            }
         }
     }
 }
 
 fn wayland_button_to_egui(button: u32) -> Option<PointerButton> {
+    // Linux button codes (from linux/input-event-codes.h)
     match button {
         0x110 => Some(PointerButton::Primary),
         0x111 => Some(PointerButton::Secondary),
@@ -227,6 +239,7 @@ fn wayland_button_to_egui(button: u32) -> Option<PointerButton> {
 
 fn keysym_to_egui_key(keysym: Keysym) -> Option<Key> {
     Some(match keysym {
+        // Commands:
         Keysym::downarrow | Keysym::Down => Key::ArrowDown,
         Keysym::leftarrow | Keysym::Left => Key::ArrowLeft,
         Keysym::rightarrow | Keysym::Right => Key::ArrowRight,
@@ -241,6 +254,7 @@ fn keysym_to_egui_key(keysym: Keysym) -> Option<Key> {
         Keysym::End => Key::End,
         Keysym::Prior => Key::PageUp,
         Keysym::Next => Key::PageDown,
+        // Punctuation:
         Keysym::space => Key::Space,
         Keysym::colon => Key::Colon,
         Keysym::comma => Key::Comma,
@@ -251,12 +265,16 @@ fn keysym_to_egui_key(keysym: Keysym) -> Option<Key> {
         Keysym::semicolon => Key::Semicolon,
         Keysym::bracketleft => Key::OpenBracket,
         Keysym::bracketright => Key::CloseBracket,
+        Keysym::braceleft => Key::OpenCurlyBracket,
+        Keysym::braceright => Key::CloseCurlyBracket,
         Keysym::grave => Key::Backtick,
         Keysym::backslash => Key::Backslash,
         Keysym::slash => Key::Slash,
         Keysym::bar => Key::Pipe,
         Keysym::question => Key::Questionmark,
+        Keysym::exclam => Key::Exclamationmark,
         Keysym::apostrophe => Key::Quote,
+        // Digits:
         Keysym::_0 => Key::Num0,
         Keysym::_1 => Key::Num1,
         Keysym::_2 => Key::Num2,
@@ -267,6 +285,7 @@ fn keysym_to_egui_key(keysym: Keysym) -> Option<Key> {
         Keysym::_7 => Key::Num7,
         Keysym::_8 => Key::Num8,
         Keysym::_9 => Key::Num9,
+        // Letters:
         Keysym::a => Key::A,
         Keysym::b => Key::B,
         Keysym::c => Key::C,
@@ -293,6 +312,7 @@ fn keysym_to_egui_key(keysym: Keysym) -> Option<Key> {
         Keysym::x => Key::X,
         Keysym::y => Key::Y,
         Keysym::z => Key::Z,
+        // Function keys:
         Keysym::F1 => Key::F1,
         Keysym::F2 => Key::F2,
         Keysym::F3 => Key::F3,
@@ -313,6 +333,23 @@ fn keysym_to_egui_key(keysym: Keysym) -> Option<Key> {
         Keysym::F18 => Key::F18,
         Keysym::F19 => Key::F19,
         Keysym::F20 => Key::F20,
+        Keysym::F21 => Key::F21,
+        Keysym::F22 => Key::F22,
+        Keysym::F23 => Key::F23,
+        Keysym::F24 => Key::F24,
+        Keysym::F25 => Key::F25,
+        Keysym::F26 => Key::F26,
+        Keysym::F27 => Key::F27,
+        Keysym::F28 => Key::F28,
+        Keysym::F29 => Key::F29,
+        Keysym::F30 => Key::F30,
+        Keysym::F31 => Key::F31,
+        Keysym::F32 => Key::F32,
+        Keysym::F33 => Key::F33,
+        Keysym::F34 => Key::F34,
+        Keysym::F35 => Key::F35,
+        // Navigation keys:
+        // Keysym::BrowserBack => Key::BrowserBack,
         _ => return None,
     })
 }
