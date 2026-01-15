@@ -95,7 +95,7 @@ fn main() {
             .blocking_dispatch(&mut app)
             .expect("Wayland dispatch failed");
 
-        let events: Vec<_> = app.wayland_events.drain(..).collect();
+        let events = app.take_wayland_events();
         egui_manager.handle_events(&mut app, &events);
     }
 }

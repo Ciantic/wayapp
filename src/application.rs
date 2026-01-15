@@ -135,7 +135,7 @@ pub enum WaylandEvent {
 }
 
 pub struct Application {
-    pub wayland_events: Vec<WaylandEvent>,
+    wayland_events: Vec<WaylandEvent>,
     pub conn: Connection,
     pub event_queue: Option<EventQueue<Self>>,
     pub qh: QueueHandle<Self>,
@@ -220,6 +220,10 @@ impl Application {
             pointer_shape_devices: HashMap::new(),
             keyboard_focused_surface: None,
         }
+    }
+
+    pub fn take_wayland_events(&mut self) -> Vec<WaylandEvent> {
+        self.wayland_events.drain(..).collect()
     }
 
     pub fn run_blocking(&mut self) {

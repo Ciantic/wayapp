@@ -135,8 +135,7 @@ async fn main() {
             }) => {
                 println!("[ASYNC MAIN] ✓ Dispatched Wayland events on thread {:?}", std::thread::current().id());
                 let _ = event_queue.dispatch_pending(&mut app);
-
-                let events: Vec<_> = app.wayland_events.drain(..).collect();
+                let events = app.take_wayland_events();
                 egui_manager.handle_events(&mut app, &events);
             }
 

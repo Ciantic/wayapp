@@ -118,9 +118,7 @@ fn main() {
         event_queue
             .blocking_dispatch(&mut app)
             .expect("Wayland dispatch failed");
-        let events: Vec<_> = app.wayland_events.drain(..).collect();
-        for event in events {
-            single_color_manager.handle_events(&app, &[event])
-        }
+        let events = app.take_wayland_events();
+        single_color_manager.handle_events(&app, &events)
     }
 }
