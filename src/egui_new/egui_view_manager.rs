@@ -40,6 +40,8 @@ use smithay_client_toolkit::shell::xdg::popup::Popup;
 use smithay_client_toolkit::shell::xdg::window::Window;
 use smithay_clipboard::Clipboard;
 use std::num::NonZero;
+use std::ops::Deref;
+use std::ops::DerefMut;
 use std::ptr::NonNull;
 use std::time::Duration;
 use std::time::Instant;
@@ -56,7 +58,7 @@ pub trait EguiAppData {
 }
 
 /// Surface-specific EGUI state
-struct EguiSurfaceState<A: EguiAppData> {
+pub struct EguiSurfaceState<A: EguiAppData> {
     viewport: Option<WpViewport>,
     wl_surface: WlSurface,
     surface: wgpu::Surface<'static>,
@@ -320,6 +322,20 @@ impl<A: EguiAppData> EguiSurfaceState<A> {
     }
 }
 
+impl<A: EguiAppData> Deref for EguiSurfaceState<A> {
+    type Target = A;
+
+    fn deref(&self) -> &Self::Target {
+        &self.egui_app
+    }
+}
+
+impl<A: EguiAppData> DerefMut for EguiSurfaceState<A> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.egui_app
+    }
+}
+
 /// EGUI View Manager - manages all EGUI surfaces using the ViewManager pattern
 pub struct EguiViewManager<A: EguiAppData> {
     view_manager: ViewManager<EguiSurfaceState<A>>,
@@ -468,11 +484,14 @@ impl<A: EguiAppData> EguiViewManager<A> {
         egui_app: A,
         width: u32,
         height: u32,
-    ) {
+    ) -> &mut EguiSurfaceState<A> {
         let mut surface_state = EguiSurfaceState::new(app, window.wl_surface().clone(), egui_app);
         surface_state.width = width;
         surface_state.height = height;
         self.view_manager.push(&window, surface_state);
+        self.view_manager
+            .get_data_by_id_mut(&window.wl_surface().id())
+            .unwrap()
     }
 
     /// Add a layer surface with EGUI app
@@ -483,12 +502,15 @@ impl<A: EguiAppData> EguiViewManager<A> {
         egui_app: A,
         width: u32,
         height: u32,
-    ) {
+    ) -> &mut EguiSurfaceState<A> {
         let mut surface_state =
             EguiSurfaceState::new(app, layer_surface.wl_surface().clone(), egui_app);
         surface_state.width = width;
         surface_state.height = height;
         self.view_manager.push(&layer_surface, surface_state);
+        self.view_manager
+            .get_data_by_id_mut(&layer_surface.wl_surface().id())
+            .unwrap()
     }
 
     /// Add a popup surface with EGUI app
@@ -499,11 +521,14 @@ impl<A: EguiAppData> EguiViewManager<A> {
         egui_app: A,
         width: u32,
         height: u32,
-    ) {
+    ) -> &mut EguiSurfaceState<A> {
         let mut surface_state = EguiSurfaceState::new(app, popup.wl_surface().clone(), egui_app);
         surface_state.width = width;
         surface_state.height = height;
         self.view_manager.push(&popup, surface_state);
+        self.view_manager
+            .get_data_by_id_mut(&popup.wl_surface().id())
+            .unwrap()
     }
 }
 

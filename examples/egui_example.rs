@@ -86,7 +86,8 @@ fn main() {
     layer_surface.set_size(256, 256);
     layer_surface.commit();
 
-    egui_manager.add_layer_surface(&app, layer_surface, EguiApp::default(), 256, 256);
+    let my_egui_app =
+        egui_manager.add_layer_surface(&app, layer_surface, EguiApp::default(), 256, 256);
 
     // Run the Wayland event loop
     let mut event_queue = app.event_queue.take().unwrap();
