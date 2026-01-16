@@ -8,24 +8,24 @@ homepage = "https://github.com/Ciantic/wayapp"
 edition = "2024"
 
 [dependencies]
-log = "0.4.28"
+log = "0.4.29"
 smithay-client-toolkit = "0.20.0"
 smithay-clipboard = "0.7"
-wayland-backend = { version = "0.3.11", features = ["client_system"] }
-wayland-client = "0.31.11"
-wayland-protocols = "0.32.9"
-wayland-protocols-wlr = "0.3.9"
+wayland-backend = { version = "0.3.12", features = ["client_system"] }
+wayland-client = "0.31.12"
+wayland-protocols = "0.32.10"
+wayland-protocols-wlr = "0.3.10"
 
 # Used only by egui/wgpu backend
 pollster = "0.4.0"
-egui = "0.33.2"
-egui-wgpu = "0.33.2"
+egui = "0.33.3"
+egui-wgpu = "0.33.3"
 raw-window-handle = "0.6.2"
 wgpu = "27.0.1"
 
 [dev-dependencies]
 env_logger = "0.11.8"
-tokio = { version = "1.47.1", features = [
+tokio = { version = "1.49.0", features = [
     "rt",
     "time",
     "net",
