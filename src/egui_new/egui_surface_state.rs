@@ -60,8 +60,9 @@ pub trait EguiAppData {
 }
 
 /// Surface-specific EGUI state
-pub struct EguiSurfaceState {
+pub struct EguiSurfaceState<T: Into<Kind> + Clone> {
     viewport: Option<WpViewport>,
+    t: T,
     kind: Kind,
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
@@ -78,8 +79,9 @@ pub struct EguiSurfaceState {
     has_keyboard_focus: bool,
 }
 
-impl EguiSurfaceState {
-    fn new(app: &Application, kind: Kind) -> Self {
+impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
+    pub fn new(app: &Application, t: T) -> Self {
+        let kind = t.clone().into();
         let wl_surface = kind.get_wl_surface();
         let raw_display_handle = RawDisplayHandle::Wayland(WaylandDisplayHandle::new(
             NonNull::new(app.conn.backend().display_ptr() as *mut _)
@@ -128,6 +130,7 @@ impl EguiSurfaceState {
 
         Self {
             viewport: None,
+            t,
             kind,
             surface,
             device,
@@ -149,17 +152,17 @@ impl EguiSurfaceState {
         self.kind.get_wl_surface()
     }
 
-    pub fn from_layer_surface(app: &Application, layer_surface: &LayerSurface) -> Self {
-        Self::new(app, Kind::LayerSurface(layer_surface.clone()))
-    }
+    // pub fn from_layer_surface(app: &Application, layer_surface: &LayerSurface) ->
+    // Self {     Self::new(app, layer_surface.clone())
+    // }
 
-    pub fn from_popup(app: &Application, popup: &Popup) -> Self {
-        Self::new(app, Kind::Popup(popup.clone()))
-    }
+    // pub fn from_popup(app: &Application, popup: &Popup) -> Self {
+    //     Self::new(app, Kind::Popup(popup.clone()))
+    // }
 
-    pub fn from_window(app: &Application, window: &Window) -> Self {
-        Self::new(app, Kind::Window(window.clone()))
-    }
+    // pub fn from_window(app: &Application, window: &Window) -> Self {
+    //     Self::new(app, Kind::Window(window.clone()))
+    // }
 
     fn configure(&mut self, app: &Application, width: u32, height: u32) {
         trace!(
@@ -442,5 +445,19 @@ impl EguiSurfaceState {
                 _ => {}
             }
         }
+    }
+}
+
+impl<T: Into<Kind> + Clone> Deref for EguiSurfaceState<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.t
+    }
+}
+
+impl<T: Into<Kind> + Clone> DerefMut for EguiSurfaceState<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.t
     }
 }

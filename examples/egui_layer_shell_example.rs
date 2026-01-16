@@ -148,7 +148,7 @@ fn main() {
     layer_surface.commit();
 
     let mut my_app = EguiApp::new(&layer_surface);
-    let mut egui_surface = EguiSurfaceState::from_layer_surface(&app, &layer_surface);
+    let mut egui_surface = EguiSurfaceState::new(&app, &layer_surface);
 
     // Run the Wayland event loop
     let mut event_queue = app.event_queue.take().unwrap();

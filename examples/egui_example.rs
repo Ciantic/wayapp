@@ -71,7 +71,7 @@ fn main() {
     example_window.set_min_size(Some((256, 256)));
     example_window.commit();
 
-    let mut example_window_app = EguiSurfaceState::from_window(&app, &example_window);
+    let mut example_window_app = EguiSurfaceState::new(&app, &example_window);
 
     // Example layer surface --------------------------
     let layer_wl_surface = app.compositor_state.create_surface(&app.qh);
@@ -88,7 +88,7 @@ fn main() {
     layer_surface.set_size(256, 256);
     layer_surface.commit();
 
-    let mut layer_surface_app = EguiSurfaceState::from_layer_surface(&app, &layer_surface);
+    let mut layer_surface_app = EguiSurfaceState::new(&app, &layer_surface);
 
     // Run the Wayland event loop
     let mut event_queue = app.event_queue.take().unwrap();

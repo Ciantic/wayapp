@@ -1,5 +1,8 @@
+use crate::Application;
+use smithay_client_toolkit::reexports::protocols_experimental::input_method::v1::client::xx_input_method_v1::Request;
 ///! View manager for different kinds of surfaces
 use smithay_client_toolkit::shell::WaylandSurface;
+use smithay_client_toolkit::shell::wlr_layer::Layer;
 use smithay_client_toolkit::shell::wlr_layer::LayerSurface;
 use smithay_client_toolkit::shell::xdg::popup::Popup;
 use smithay_client_toolkit::shell::xdg::window::Window;
@@ -65,6 +68,12 @@ impl Kind {
             _ => false,
         }
     }
+
+    // pub fn request_frame(&self, app: &Application) {
+    //     let wl_surface = self.get_wl_surface();
+    //     wl_surface.frame(&app.qh, wl_surface.clone());
+    //     wl_surface.commit();
+    // }
 }
 impl PartialEq for Kind {
     fn eq(&self, other: &Self) -> bool {
@@ -118,3 +127,41 @@ impl From<(WlSurface, WlSubsurface, WlSurface)> for Kind {
         }
     }
 }
+
+/*
+pub trait RequestFrame {
+    fn request_frame(&self, app: &Application);
+}
+
+impl RequestFrame for LayerSurface {
+    fn request_frame(&self, app: &Application) {
+        let wl_surface = self.wl_surface();
+        wl_surface.frame(&app.qh, wl_surface.clone());
+        wl_surface.commit();
+    }
+}
+
+impl RequestFrame for Window {
+    fn request_frame(&self, app: &Application) {
+        let wl_surface = self.wl_surface();
+        wl_surface.frame(&app.qh, wl_surface.clone());
+        wl_surface.commit();
+    }
+}
+
+impl RequestFrame for Popup {
+    fn request_frame(&self, app: &Application) {
+        let wl_surface = self.wl_surface();
+        wl_surface.frame(&app.qh, wl_surface.clone());
+        wl_surface.commit();
+    }
+}
+
+impl RequestFrame for WlSurface {
+    fn request_frame(&self, app: &Application) {
+        self.frame(&app.qh, self.clone());
+        self.commit();
+    }
+}
+
+*/
