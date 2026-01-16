@@ -152,18 +152,6 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
         self.kind.get_wl_surface()
     }
 
-    // pub fn from_layer_surface(app: &Application, layer_surface: &LayerSurface) ->
-    // Self {     Self::new(app, layer_surface.clone())
-    // }
-
-    // pub fn from_popup(app: &Application, popup: &Popup) -> Self {
-    //     Self::new(app, Kind::Popup(popup.clone()))
-    // }
-
-    // pub fn from_window(app: &Application, window: &Window) -> Self {
-    //     Self::new(app, Kind::Window(window.clone()))
-    // }
-
     fn configure(&mut self, app: &Application, width: u32, height: u32) {
         trace!(
             "Configuring EGUI surface {} to {}x{}",
@@ -225,10 +213,6 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
     fn handle_pointer_event(&mut self, event: &PointerEvent) {
         self.input_state.handle_pointer_event(event);
         self.request_frame();
-
-        // TODO: How to handle cursor shape changes properly?
-        // let platform_output = self.render();
-        // Some(egui_to_cursor_shape(platform_output.cursor_icon))
     }
 
     fn handle_keyboard_enter(&mut self) {
