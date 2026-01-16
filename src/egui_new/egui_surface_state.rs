@@ -207,33 +207,27 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
         self.height = height.max(1);
         self.input_state.set_screen_size(self.width, self.height);
         self.reconfigure_surface();
-        self.request_frame();
     }
 
     fn handle_pointer_event(&mut self, event: &PointerEvent) {
         self.input_state.handle_pointer_event(event);
-        self.request_frame();
     }
 
     fn handle_keyboard_enter(&mut self) {
         self.input_state.handle_keyboard_enter();
-        self.request_frame();
     }
 
     fn handle_keyboard_leave(&mut self) {
         self.input_state.handle_keyboard_leave();
-        self.request_frame();
     }
 
     fn handle_keyboard_event(&mut self, event: &KeyEvent, pressed: bool, repeat: bool) {
         self.input_state
             .handle_keyboard_event(event, pressed, repeat);
-        self.request_frame();
     }
 
     fn update_modifiers(&mut self, modifiers: &WaylandModifiers) {
         self.input_state.update_modifiers(modifiers);
-        self.request_frame();
     }
 
     fn scale_factor_changed(&mut self, new_factor: i32) {
@@ -244,7 +238,6 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
         }
         self.scale_factor = factor;
         self.reconfigure_surface();
-        self.request_frame();
     }
 
     pub fn request_frame(&mut self) {
@@ -392,6 +385,8 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
                 }
                 WaylandEvent::ScaleFactorChanged(_, factor) => {
                     self.scale_factor_changed(*factor);
+                    self.request_frame();
+                    let _ = app.conn.flush();
                 }
                 WaylandEvent::PointerEvent((surface, position, event_kind)) => {
                     self.handle_pointer_event(&PointerEvent {
@@ -399,35 +394,46 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
                         position: position.clone(),
                         kind: event_kind.clone(),
                     });
+                    self.request_frame();
+                    let _ = app.conn.flush();
                 }
                 WaylandEvent::KeyboardEnter(_, _serials, _keysyms) => {
                     self.handle_keyboard_enter();
+                    self.request_frame();
+                    let _ = app.conn.flush();
                     self.has_keyboard_focus = true;
                 }
                 WaylandEvent::KeyboardLeave(_) => {
                     self.handle_keyboard_leave();
+                    self.request_frame();
+                    let _ = app.conn.flush();
                     self.has_keyboard_focus = false;
                 }
                 WaylandEvent::KeyPress(key_event) => {
                     if self.has_keyboard_focus {
                         self.handle_keyboard_event(key_event, true, false);
-                        app.conn.flush().unwrap();
+                        self.request_frame();
+                        let _ = app.conn.flush();
                     }
                 }
                 WaylandEvent::KeyRelease(key_event) => {
                     if self.has_keyboard_focus {
                         self.handle_keyboard_event(key_event, false, false);
-                        app.conn.flush().unwrap();
+                        self.request_frame();
+                        let _ = app.conn.flush();
                     }
                 }
                 WaylandEvent::KeyRepeat(key_event) => {
                     if self.has_keyboard_focus {
                         self.handle_keyboard_event(key_event, true, true);
-                        app.conn.flush().unwrap();
+                        self.request_frame();
+                        let _ = app.conn.flush();
                     }
                 }
                 WaylandEvent::ModifiersChanged(modifiers) => {
                     self.update_modifiers(modifiers);
+                    self.request_frame();
+                    let _ = app.conn.flush();
                 }
                 _ => {}
             }
