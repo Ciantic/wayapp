@@ -62,6 +62,7 @@ use wayland_client::protocol::wl_keyboard::WlKeyboard;
 use wayland_client::protocol::wl_output;
 use wayland_client::protocol::wl_output::WlOutput;
 use wayland_client::protocol::wl_pointer::WlPointer;
+use wayland_client::protocol::wl_region::WlRegion;
 use wayland_client::protocol::wl_seat;
 use wayland_client::protocol::wl_surface::WlSurface;
 use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::Shape;
@@ -929,20 +930,6 @@ impl ProvidesRegistryState for Application {
     }
 }
 
-delegate_compositor!(Application);
-delegate_subcompositor!(Application);
-delegate_output!(Application);
-delegate_shm!(Application);
-delegate_seat!(Application);
-delegate_keyboard!(Application);
-delegate_pointer!(Application);
-delegate_layer!(Application);
-delegate_xdg_shell!(Application);
-delegate_xdg_window!(Application);
-delegate_xdg_popup!(Application);
-delegate_registry!(Application);
-delegate_simple!(Application, WpViewporter, 1);
-
 impl AsMut<SimpleGlobal<WpViewporter, 1>> for Application {
     fn as_mut(&mut self) -> &mut SimpleGlobal<WpViewporter, 1> {
         &mut self.viewporter
@@ -961,3 +948,29 @@ impl Dispatch<WpViewport, ()> for Application {
         // No events expected from wp_viewport
     }
 }
+
+impl Dispatch<WlRegion, ()> for Application {
+    fn event(
+        _state: &mut Self,
+        _proxy: &WlRegion,
+        _event: <WlRegion as wayland_client::Proxy>::Event,
+        _data: &(),
+        _conn: &Connection,
+        _qhandle: &QueueHandle<Self>,
+    ) {
+    }
+}
+
+delegate_compositor!(Application);
+delegate_subcompositor!(Application);
+delegate_output!(Application);
+delegate_shm!(Application);
+delegate_seat!(Application);
+delegate_keyboard!(Application);
+delegate_pointer!(Application);
+delegate_layer!(Application);
+delegate_xdg_shell!(Application);
+delegate_xdg_window!(Application);
+delegate_xdg_popup!(Application);
+delegate_registry!(Application);
+delegate_simple!(Application, WpViewporter, 1);

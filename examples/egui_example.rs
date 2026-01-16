@@ -58,6 +58,12 @@ fn main() {
     let mut app = Application::new();
     let mut myapp1 = EguiApp::default();
     let mut myapp2 = EguiApp::default();
+    let first_monitor = app
+        .output_state
+        .outputs()
+        .collect::<Vec<_>>()
+        .get(0)
+        .cloned();
 
     // Example window --------------------------
     let example_win_surface = app.compositor_state.create_surface(&app.qh);
@@ -80,12 +86,22 @@ fn main() {
         layer_wl_surface.clone(),
         Layer::Top,
         Some("Example2"),
-        None,
+        first_monitor.as_ref(),
     );
     layer_surface.set_keyboard_interactivity(KeyboardInteractivity::Exclusive);
     layer_surface.set_anchor(Anchor::BOTTOM | Anchor::LEFT);
     layer_surface.set_margin(0, 0, 20, 20);
     layer_surface.set_size(256, 256);
+
+    // Example how to restrict input region
+    layer_surface.set_input_region(Some(&{
+        let region = app
+            .compositor_state
+            .wl_compositor()
+            .create_region(&app.qh, ());
+        region.add(20, 20, 150, 150);
+        region
+    }));
     layer_surface.commit();
 
     let mut layer_surface_app = EguiSurfaceState::new(&app, &layer_surface);

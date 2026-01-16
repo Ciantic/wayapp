@@ -1,8 +1,6 @@
 use crate::Application;
-use smithay_client_toolkit::reexports::protocols_experimental::input_method::v1::client::xx_input_method_v1::Request;
 ///! View manager for different kinds of surfaces
 use smithay_client_toolkit::shell::WaylandSurface;
-use smithay_client_toolkit::shell::wlr_layer::Layer;
 use smithay_client_toolkit::shell::wlr_layer::LayerSurface;
 use smithay_client_toolkit::shell::xdg::popup::Popup;
 use smithay_client_toolkit::shell::xdg::window::Window;
