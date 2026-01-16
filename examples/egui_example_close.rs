@@ -82,6 +82,9 @@ fn main() {
         for event in &events {
             if let WaylandEvent::WindowRequestClose(win) = event {
                 println!("Example window close requested, exiting...");
+
+                // example_window_app.take_if(|v| v.contains(win));
+
                 if example_window_app.contains(win) {
                     example_window_app.take();
                 }
