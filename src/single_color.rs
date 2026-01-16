@@ -2,31 +2,13 @@
 ///!
 ///! Use this as an example to how to start implementing your own containers.
 use crate::Application;
-use crate::BaseTrait;
-use crate::CompositorHandlerContainer;
-use crate::KeyboardHandlerContainer;
-use crate::Kind;
-use crate::LayerSurfaceContainer;
-use crate::PointerHandlerContainer;
-use crate::PopupContainer;
-use crate::SubsurfaceContainer;
 use crate::ViewManager;
 use crate::WaylandEvent;
-use crate::WindowContainer;
 use egui::ahash::HashMap;
 use log::trace;
 use smithay_client_toolkit::shell::WaylandSurface;
-use smithay_client_toolkit::shell::wlr_layer::LayerSurface;
-use smithay_client_toolkit::shell::wlr_layer::LayerSurfaceConfigure;
-use smithay_client_toolkit::shell::xdg::popup::Popup;
-use smithay_client_toolkit::shell::xdg::popup::PopupConfigure;
-use smithay_client_toolkit::shell::xdg::window::Window;
-use smithay_client_toolkit::shell::xdg::window::WindowConfigure;
-use smithay_client_toolkit::shm::Shm;
 use smithay_client_toolkit::shm::slot::SlotPool;
-use std::cell::RefCell;
 use std::num::NonZero;
-use std::rc::Rc;
 use std::time::Duration;
 use std::time::Instant;
 use wayland_backend::client::ObjectId;
@@ -35,7 +17,6 @@ use wayland_client::QueueHandle;
 use wayland_client::protocol::wl_shm;
 use wayland_client::protocol::wl_surface::WlSurface;
 use wayland_protocols::wp::viewporter::client::wp_viewport::WpViewport;
-use wgpu::wgc::id;
 
 #[derive(Debug, Default)]
 pub struct SingleColorState {

@@ -6,6 +6,7 @@
 #![allow(dead_code)]
 
 use crate::Application;
+use crate::Kind;
 use crate::ViewManager;
 use crate::WaylandEvent;
 use crate::WaylandToEguiInput;
@@ -48,6 +49,7 @@ use std::time::Instant;
 use wayland_backend::client::ObjectId;
 use wayland_client::Proxy;
 use wayland_client::QueueHandle;
+use wayland_client::protocol::wl_subsurface::WlSubsurface;
 use wayland_client::protocol::wl_surface::WlSurface;
 use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::Shape;
 use wayland_protocols::wp::viewporter::client::wp_viewport::WpViewport;
@@ -60,15 +62,15 @@ pub trait EguiAppData {
 /// Surface-specific EGUI state
 pub struct EguiSurfaceState {
     viewport: Option<WpViewport>,
-    wl_surface: WlSurface,
+    kind: Kind,
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
     queue: wgpu::Queue,
     renderer: EguiWgpuRenderer,
     input_state: WaylandToEguiInput,
     queue_handle: QueueHandle<Application>,
-    width: u32,
-    height: u32,
+    width: u32,  // WGPU Surface width in logical pixels
+    height: u32, // WGPU Surface height in logical pixels
     scale_factor: i32,
     surface_config: Option<wgpu::SurfaceConfiguration>,
     output_format: wgpu::TextureFormat,
@@ -77,7 +79,8 @@ pub struct EguiSurfaceState {
 }
 
 impl EguiSurfaceState {
-    fn new(app: &Application, wl_surface: WlSurface) -> Self {
+    fn new(app: &Application, kind: Kind) -> Self {
+        let wl_surface = kind.get_wl_surface();
         let raw_display_handle = RawDisplayHandle::Wayland(WaylandDisplayHandle::new(
             NonNull::new(app.conn.backend().display_ptr() as *mut _)
                 .expect("Wayland display pointer was null"),
@@ -125,15 +128,15 @@ impl EguiSurfaceState {
 
         Self {
             viewport: None,
-            wl_surface,
+            kind,
             surface,
             device,
             queue,
             renderer,
             input_state,
             queue_handle: app.qh.clone(),
-            width: 256,
-            height: 256,
+            width: 1,
+            height: 1,
             scale_factor: 1,
             surface_config: None,
             output_format,
@@ -142,22 +145,26 @@ impl EguiSurfaceState {
         }
     }
 
+    pub fn wl_surface(&self) -> &WlSurface {
+        self.kind.get_wl_surface()
+    }
+
     pub fn from_layer_surface(app: &Application, layer_surface: &LayerSurface) -> Self {
-        Self::new(app, layer_surface.wl_surface().clone())
+        Self::new(app, Kind::LayerSurface(layer_surface.clone()))
     }
 
     pub fn from_popup(app: &Application, popup: &Popup) -> Self {
-        Self::new(app, popup.wl_surface().clone())
+        Self::new(app, Kind::Popup(popup.clone()))
     }
 
     pub fn from_window(app: &Application, window: &Window) -> Self {
-        Self::new(app, window.wl_surface().clone())
+        Self::new(app, Kind::Window(window.clone()))
     }
 
     fn configure(&mut self, app: &Application, width: u32, height: u32) {
         trace!(
             "Configuring EGUI surface {} to {}x{}",
-            self.wl_surface.id(),
+            self.wl_surface().id(),
             width,
             height
         );
@@ -181,20 +188,18 @@ impl EguiSurfaceState {
             self.last_buffer_update = Some(now);
         } else {
             // Just commit the surface with the new viewport destination
-            self.wl_surface.commit();
+            self.wl_surface().commit();
         }
     }
 
     fn resize_viewport(&mut self, app: &Application, width: u32, height: u32) {
+        let wl_surface = self.wl_surface().clone();
         let viewport = self.viewport.get_or_insert_with(|| {
-            trace!(
-                "[EGUI] Creating viewport for surface {:?}",
-                self.wl_surface.id()
-            );
+            trace!("[EGUI] Creating viewport for surface {:?}", wl_surface.id());
             app.viewporter
                 .get()
                 .expect("wp_viewporter not available")
-                .get_viewport(&self.wl_surface, &app.qh, ())
+                .get_viewport(&wl_surface, &app.qh, ())
         });
 
         viewport.set_destination(width as i32, height as i32);
@@ -203,7 +208,7 @@ impl EguiSurfaceState {
     fn update_buffers(&mut self, width: u32, height: u32) {
         trace!(
             "Updating EGUI surface {} buffers to {}x{}",
-            self.wl_surface.id(),
+            self.wl_surface().id(),
             width,
             height
         );
@@ -245,7 +250,7 @@ impl EguiSurfaceState {
     }
 
     fn scale_factor_changed(&mut self, new_factor: i32) {
-        self.wl_surface.set_buffer_scale(new_factor);
+        self.wl_surface().set_buffer_scale(new_factor);
         let factor = new_factor.max(1);
         if factor == self.scale_factor {
             return;
@@ -256,13 +261,13 @@ impl EguiSurfaceState {
     }
 
     pub fn request_frame(&mut self) {
-        self.wl_surface
-            .frame(&self.queue_handle, self.wl_surface.clone());
-        self.wl_surface.commit();
+        let wl_surface = self.wl_surface();
+        wl_surface.frame(&self.queue_handle, wl_surface.clone());
+        wl_surface.commit();
     }
 
     fn render(&mut self, ui: &mut impl EguiAppData) -> PlatformOutput {
-        // trace!("Rendering EGUI surface {}", self.wl_surface.id());
+        // trace!("Rendering EGUI surface {}", self.wl_surface().id());
         let surface_texture = self
             .surface
             .get_current_texture()
@@ -321,9 +326,9 @@ impl EguiSurfaceState {
 
         // Only request next frame if there are events
         if !platform_output.events.is_empty() {
-            self.wl_surface
-                .frame(&self.queue_handle, self.wl_surface.clone());
-            self.wl_surface.commit();
+            let wl_surface = self.wl_surface();
+            wl_surface.frame(&self.queue_handle, wl_surface.clone());
+            wl_surface.commit();
         }
 
         platform_output
@@ -360,7 +365,7 @@ impl EguiSurfaceState {
     ) {
         for event in events {
             if let Some(surface) = event.get_wl_surface() {
-                if surface.id() != self.wl_surface.id() {
+                if surface.id() != self.wl_surface().id() {
                     continue;
                 }
             }
@@ -394,11 +399,11 @@ impl EguiSurfaceState {
                     self.configure(app, width, height);
                     self.render(ui);
                 }
-                WaylandEvent::Frame(surface, time) => {
+                WaylandEvent::Frame(_, _) => {
                     let output = self.render(ui);
                     app.set_cursor(egui_to_cursor_shape(output.cursor_icon));
                 }
-                WaylandEvent::ScaleFactorChanged(surface, factor) => {
+                WaylandEvent::ScaleFactorChanged(_, factor) => {
                     self.scale_factor_changed(*factor);
                 }
                 WaylandEvent::PointerEvent((surface, position, event_kind)) => {

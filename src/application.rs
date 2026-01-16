@@ -176,7 +176,6 @@ pub struct Application {
     /// For cursor set_shape to work serial parameter must match the latest
     /// wl_pointer.enter or zwp_tablet_tool_v2.proximity_in serial number sent
     /// to the client.
-    last_keyboard_enter_surface: Option<ObjectId>,
     last_pointer_enter_serial: Option<u32>,
     last_pointer: Option<WlPointer>,
     // Cache cursor shape devices per pointer to avoid repeated protocol calls
@@ -231,7 +230,6 @@ impl Application {
             clipboard,
             viewporter,
             cursor_shape_manager,
-            last_keyboard_enter_surface: None,
             last_pointer_enter_serial: None,
             last_pointer: None,
             pointer_shape_devices: HashMap::new(),
@@ -384,7 +382,7 @@ impl CompositorHandler for Application {
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
         surface: &WlSurface,
-        new_transform: wl_output::Transform,
+        _new_transform: wl_output::Transform,
     ) {
         self.wayland_events
             .push(WaylandEvent::TransformChanged(surface.clone()));
@@ -512,7 +510,6 @@ impl OutputHandler for Application {
 
 impl LayerShellHandler for Application {
     fn closed(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, target_layer: &LayerSurface) {
-        let surface_id = target_layer.wl_surface().id();
         self.wayland_events
             .push(WaylandEvent::LayerShellClosed(target_layer.clone()));
 
@@ -540,7 +537,6 @@ impl LayerShellHandler for Application {
         configure: LayerSurfaceConfigure,
         _serial: u32,
     ) {
-        let surface_id = target_layer.wl_surface().id();
         self.wayland_events.push(WaylandEvent::LayerShellConfigure(
             target_layer.clone(),
             configure.clone(),
@@ -564,7 +560,6 @@ impl PopupHandler for Application {
         target_popup: &Popup,
         config: PopupConfigure,
     ) {
-        let surface_id = target_popup.wl_surface().id();
         self.wayland_events.push(WaylandEvent::PopupConfigure(
             target_popup.clone(),
             config.clone(),
@@ -617,7 +612,6 @@ impl WindowHandler for Application {
         configure: WindowConfigure,
         _serial: u32,
     ) {
-        let surface_id = target_window.wl_surface().id();
         self.wayland_events.push(WaylandEvent::WindowConfigure(
             target_window.clone(),
             configure.clone(),

@@ -2,7 +2,6 @@
 name = "wayapp"
 description = "A Wayland application wrapper using smithay-client-toolkit, supports currently just egui using wgpu"
 version = "0.1.2"
-license = "MIT"
 license-file = "LICENSE.txt"
 repository = "https://github.com/Ciantic/wayapp"
 homepage = "https://github.com/Ciantic/wayapp"
