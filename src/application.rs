@@ -51,7 +51,6 @@ use smithay_client_toolkit::shm::ShmHandler;
 use smithay_client_toolkit::subcompositor::SubcompositorState;
 use smithay_clipboard::Clipboard;
 use std::collections::HashMap;
-use std::mem::MaybeUninit;
 use wayland_backend::client::ObjectId;
 use wayland_client::Connection;
 use wayland_client::Dispatch;
@@ -64,7 +63,6 @@ use wayland_client::protocol::wl_output;
 use wayland_client::protocol::wl_output::WlOutput;
 use wayland_client::protocol::wl_pointer::WlPointer;
 use wayland_client::protocol::wl_seat;
-use wayland_client::protocol::wl_subsurface::WlSubsurface;
 use wayland_client::protocol::wl_surface::WlSurface;
 use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::Shape;
 use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::WpCursorShapeDeviceV1;
@@ -130,8 +128,25 @@ pub enum WaylandEvent {
     KeyPress(KeyEvent),
     KeyRelease(KeyEvent),
     KeyRepeat(KeyEvent),
-    PointerEvent(Vec<(WlSurface, (f64, f64), PointerEventKind)>),
+    PointerEvent((WlSurface, (f64, f64), PointerEventKind)),
     ModifiersChanged(smithay_client_toolkit::seat::keyboard::Modifiers),
+}
+
+impl WaylandEvent {
+    pub fn get_wl_surface(&self) -> Option<&WlSurface> {
+        match self {
+            WaylandEvent::Frame(s, _) => Some(s),
+            WaylandEvent::ScaleFactorChanged(s, _) => Some(s),
+            WaylandEvent::TransformChanged(s) => Some(s),
+            WaylandEvent::SurfaceEnteredOutput(s, _) => Some(s),
+            WaylandEvent::SurfaceLeftOutput(s, _) => Some(s),
+            WaylandEvent::WindowConfigure(w, _) => Some(&w.wl_surface()),
+            WaylandEvent::KeyboardEnter(s, _, _) => Some(s),
+            WaylandEvent::KeyboardLeave(s) => Some(s),
+            WaylandEvent::PointerEvent((s, _, _)) => Some(s),
+            _ => None,
+        }
+    }
 }
 
 pub struct Application {
@@ -161,6 +176,7 @@ pub struct Application {
     /// For cursor set_shape to work serial parameter must match the latest
     /// wl_pointer.enter or zwp_tablet_tool_v2.proximity_in serial number sent
     /// to the client.
+    last_keyboard_enter_surface: Option<ObjectId>,
     last_pointer_enter_serial: Option<u32>,
     last_pointer: Option<WlPointer>,
     // Cache cursor shape devices per pointer to avoid repeated protocol calls
@@ -215,6 +231,7 @@ impl Application {
             clipboard,
             viewporter,
             cursor_shape_manager,
+            last_keyboard_enter_surface: None,
             last_pointer_enter_serial: None,
             last_pointer: None,
             pointer_shape_devices: HashMap::new(),
@@ -626,14 +643,6 @@ impl PointerHandler for Application {
     ) {
         trace!("[MAIN] Pointer frame with {} events", events.len());
 
-        // Push the entire frame as a single event
-        self.wayland_events.push(WaylandEvent::PointerEvent(
-            events
-                .iter()
-                .map(|e| (e.surface.clone(), e.position, e.kind.clone()))
-                .collect(),
-        ));
-
         for event in events {
             match event.kind {
                 // Changing cursor shape requires last enter serial number, we are storing it here
@@ -644,7 +653,12 @@ impl PointerHandler for Application {
                 _ => {}
             }
 
-            let surface_id = event.surface.id();
+            self.wayland_events.push(WaylandEvent::PointerEvent((
+                event.surface.clone(),
+                event.position,
+                event.kind.clone(),
+            )));
+            // let surface_id = event.surface.id();
             // if let Some(kind) = self.get_by_surface_id_mut(&surface_id) {
             //     match kind {
             //         Kind::Window(window) => {

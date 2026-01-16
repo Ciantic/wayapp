@@ -58,14 +58,13 @@ pub trait EguiAppData {
 }
 
 /// Surface-specific EGUI state
-pub struct EguiSurfaceState<A: EguiAppData> {
+pub struct EguiSurfaceState {
     viewport: Option<WpViewport>,
     wl_surface: WlSurface,
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
     queue: wgpu::Queue,
     renderer: EguiWgpuRenderer,
-    egui_app: A,
     input_state: WaylandToEguiInput,
     queue_handle: QueueHandle<Application>,
     width: u32,
@@ -74,10 +73,11 @@ pub struct EguiSurfaceState<A: EguiAppData> {
     surface_config: Option<wgpu::SurfaceConfiguration>,
     output_format: wgpu::TextureFormat,
     last_buffer_update: Option<Instant>,
+    has_keyboard_focus: bool,
 }
 
-impl<A: EguiAppData> EguiSurfaceState<A> {
-    fn new(app: &Application, wl_surface: WlSurface, egui_app: A) -> Self {
+impl EguiSurfaceState {
+    fn new(app: &Application, wl_surface: WlSurface) -> Self {
         let raw_display_handle = RawDisplayHandle::Wayland(WaylandDisplayHandle::new(
             NonNull::new(app.conn.backend().display_ptr() as *mut _)
                 .expect("Wayland display pointer was null"),
@@ -130,7 +130,6 @@ impl<A: EguiAppData> EguiSurfaceState<A> {
             device,
             queue,
             renderer,
-            egui_app,
             input_state,
             queue_handle: app.qh.clone(),
             width: 256,
@@ -139,23 +138,20 @@ impl<A: EguiAppData> EguiSurfaceState<A> {
             surface_config: None,
             output_format,
             last_buffer_update: None,
+            has_keyboard_focus: false,
         }
     }
 
-    pub fn from_layer_surface(
-        app: &Application,
-        layer_surface: &LayerSurface,
-        egui_app: A,
-    ) -> Self {
-        Self::new(app, layer_surface.wl_surface().clone(), egui_app)
+    pub fn from_layer_surface(app: &Application, layer_surface: &LayerSurface) -> Self {
+        Self::new(app, layer_surface.wl_surface().clone())
     }
 
-    pub fn from_popup(app: &Application, popup: &Popup, egui_app: A) -> Self {
-        Self::new(app, popup.wl_surface().clone(), egui_app)
+    pub fn from_popup(app: &Application, popup: &Popup) -> Self {
+        Self::new(app, popup.wl_surface().clone())
     }
 
-    pub fn from_window(app: &Application, window: &Window, egui_app: A) -> Self {
-        Self::new(app, window.wl_surface().clone(), egui_app)
+    pub fn from_window(app: &Application, window: &Window) -> Self {
+        Self::new(app, window.wl_surface().clone())
     }
 
     fn configure(&mut self, app: &Application, width: u32, height: u32) {
@@ -218,10 +214,6 @@ impl<A: EguiAppData> EguiSurfaceState<A> {
         self.request_frame();
     }
 
-    fn frame(&mut self, _time: u32) -> PlatformOutput {
-        self.render()
-    }
-
     fn handle_pointer_event(&mut self, event: &PointerEvent) {
         self.input_state.handle_pointer_event(event);
         self.request_frame();
@@ -263,14 +255,14 @@ impl<A: EguiAppData> EguiSurfaceState<A> {
         self.request_frame();
     }
 
-    fn request_frame(&mut self) {
+    pub fn request_frame(&mut self) {
         self.wl_surface
             .frame(&self.queue_handle, self.wl_surface.clone());
         self.wl_surface.commit();
     }
 
-    fn render(&mut self) -> PlatformOutput {
-        trace!("Rendering EGUI surface {}", self.wl_surface.id());
+    fn render(&mut self, ui: &mut impl EguiAppData) -> PlatformOutput {
+        // trace!("Rendering EGUI surface {}", self.wl_surface.id());
         let surface_texture = self
             .surface
             .get_current_texture()
@@ -302,7 +294,7 @@ impl<A: EguiAppData> EguiSurfaceState<A> {
 
         let raw_input = self.input_state.take_raw_input();
         self.renderer.begin_frame(raw_input);
-        self.egui_app.ui(self.renderer.context());
+        ui.ui(self.renderer.context());
 
         let screen_descriptor = ScreenDescriptor {
             size_in_pixels: [
@@ -360,10 +352,20 @@ impl<A: EguiAppData> EguiSurfaceState<A> {
 
     /// Handle Wayland events and update surfaces accordingly
     /// Returns an optional cursor shape change
-    pub fn handle_events(&mut self, app: &mut Application, events: &[WaylandEvent]) {
+    pub fn handle_events(
+        &mut self,
+        app: &mut Application,
+        events: &[WaylandEvent],
+        ui: &mut impl EguiAppData,
+    ) {
         for event in events {
+            if let Some(surface) = event.get_wl_surface() {
+                if surface.id() != self.wl_surface.id() {
+                    continue;
+                }
+            }
             match event {
-                WaylandEvent::WindowConfigure(window, configure) => {
+                WaylandEvent::WindowConfigure(_, configure) => {
                     let width = configure
                         .new_size
                         .0
@@ -374,55 +376,62 @@ impl<A: EguiAppData> EguiSurfaceState<A> {
                         .1
                         .unwrap_or_else(|| NonZero::new(256).unwrap())
                         .get();
+
                     self.configure(app, width, height);
-                    self.frame(0);
+                    self.render(ui);
                 }
-                WaylandEvent::LayerShellConfigure(layer_surface, config) => {
+                WaylandEvent::LayerShellConfigure(_, config) => {
                     let width = config.new_size.0;
                     let height = config.new_size.1;
 
                     self.configure(app, width, height);
+                    self.render(ui);
                 }
-                WaylandEvent::PopupConfigure(popup, config) => {
+                WaylandEvent::PopupConfigure(_, config) => {
                     let width = config.width as u32;
                     let height = config.height as u32;
 
                     self.configure(app, width, height);
+                    self.render(ui);
                 }
                 WaylandEvent::Frame(surface, time) => {
-                    let output = self.frame(*time);
+                    let output = self.render(ui);
                     app.set_cursor(egui_to_cursor_shape(output.cursor_icon));
                 }
                 WaylandEvent::ScaleFactorChanged(surface, factor) => {
                     self.scale_factor_changed(*factor);
                 }
-                WaylandEvent::PointerEvent(events) => {
-                    for (surface, position, event_kind) in events {
-                        self.handle_pointer_event(&PointerEvent {
-                            surface: surface.clone(),
-                            position: position.clone(),
-                            kind: event_kind.clone(),
-                        });
-                    }
+                WaylandEvent::PointerEvent((surface, position, event_kind)) => {
+                    self.handle_pointer_event(&PointerEvent {
+                        surface: surface.clone(),
+                        position: position.clone(),
+                        kind: event_kind.clone(),
+                    });
                 }
-                WaylandEvent::KeyboardEnter(surface, _serials, _keysyms) => {
-                    // self.keyboard_focused_surface = Some(surface.id());
+                WaylandEvent::KeyboardEnter(_, _serials, _keysyms) => {
                     self.handle_keyboard_enter();
+                    self.has_keyboard_focus = true;
                 }
-                WaylandEvent::KeyboardLeave(surface) => {
+                WaylandEvent::KeyboardLeave(_) => {
                     self.handle_keyboard_leave();
+                    self.has_keyboard_focus = false;
                 }
                 WaylandEvent::KeyPress(key_event) => {
-                    self.handle_keyboard_event(key_event, true, false);
+                    if self.has_keyboard_focus {
+                        self.handle_keyboard_event(key_event, true, false);
+                    }
                 }
                 WaylandEvent::KeyRelease(key_event) => {
-                    self.handle_keyboard_event(key_event, false, false);
+                    if self.has_keyboard_focus {
+                        self.handle_keyboard_event(key_event, false, false);
+                    }
                 }
                 WaylandEvent::KeyRepeat(key_event) => {
-                    self.handle_keyboard_event(key_event, true, true);
+                    if self.has_keyboard_focus {
+                        self.handle_keyboard_event(key_event, true, true);
+                    }
                 }
                 WaylandEvent::ModifiersChanged(modifiers) => {
-                    // Update modifiers for focused surface only
                     self.update_modifiers(modifiers);
                 }
                 _ => {}
@@ -431,27 +440,14 @@ impl<A: EguiAppData> EguiSurfaceState<A> {
     }
 }
 
-impl<A: EguiAppData> Deref for EguiSurfaceState<A> {
-    type Target = A;
-
-    fn deref(&self) -> &Self::Target {
-        &self.egui_app
-    }
-}
-
-impl<A: EguiAppData> DerefMut for EguiSurfaceState<A> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.egui_app
-    }
-}
-
+/*
 /// EGUI View Manager - manages all EGUI surfaces using the ViewManager pattern
-pub struct EguiViewManager<A: EguiAppData> {
-    view_manager: ViewManager<EguiSurfaceState<A>>,
+pub struct EguiViewManager {
+    view_manager: ViewManager<EguiSurfaceState>,
     keyboard_focused_surface: Option<ObjectId>,
 }
 
-impl<A: EguiAppData> EguiViewManager<A> {
+impl EguiViewManager {
     pub fn new() -> Self {
         Self {
             view_manager: ViewManager::new(),
@@ -590,11 +586,10 @@ impl<A: EguiAppData> EguiViewManager<A> {
         &mut self,
         app: &Application,
         window: Window,
-        egui_app: A,
         width: u32,
         height: u32,
-    ) -> &mut EguiSurfaceState<A> {
-        let mut surface_state = EguiSurfaceState::new(app, window.wl_surface().clone(), egui_app);
+    ) -> &mut EguiSurfaceState {
+        let mut surface_state = EguiSurfaceState::new(app, window.wl_surface().clone());
         surface_state.width = width;
         surface_state.height = height;
         self.view_manager.push(&window, surface_state);
@@ -646,5 +641,5 @@ impl<A: EguiAppData> Default for EguiViewManager<A> {
         Self::new()
     }
 }
-
+ */
 // Helper functions
