@@ -978,3 +978,41 @@ delegate_xdg_window!(Application);
 delegate_xdg_popup!(Application);
 delegate_registry!(Application);
 delegate_simple!(Application, WpViewporter, 1);
+
+// ----------------------------------------------------------------
+// Request frame helper
+// ----------------------------------------------------------------
+pub trait RequestFrame {
+    fn request_frame(&self, qh: &QueueHandle<Application>);
+}
+
+impl RequestFrame for LayerSurface {
+    fn request_frame(&self, qh: &QueueHandle<Application>) {
+        let wl_surface = self.wl_surface();
+        wl_surface.frame(qh, wl_surface.clone());
+        wl_surface.commit();
+    }
+}
+
+impl RequestFrame for Window {
+    fn request_frame(&self, qh: &QueueHandle<Application>) {
+        let wl_surface = self.wl_surface();
+        wl_surface.frame(qh, wl_surface.clone());
+        wl_surface.commit();
+    }
+}
+
+impl RequestFrame for Popup {
+    fn request_frame(&self, qh: &QueueHandle<Application>) {
+        let wl_surface = self.wl_surface();
+        wl_surface.frame(qh, wl_surface.clone());
+        wl_surface.commit();
+    }
+}
+
+impl RequestFrame for WlSurface {
+    fn request_frame(&self, qh: &QueueHandle<Application>) {
+        self.frame(qh, self.clone());
+        self.commit();
+    }
+}

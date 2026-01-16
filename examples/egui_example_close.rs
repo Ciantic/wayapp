@@ -65,7 +65,7 @@ fn main() {
     example_window.set_app_id("io.github.ciantic.wayapp.ExampleWindow");
     example_window.commit();
 
-    let mut example_window_app = Some(EguiSurfaceState::new(&app, &example_window, 256, 256));
+    let mut example_window_app = Some(EguiSurfaceState::new(&app, example_window, 256, 256));
 
     // Run the Wayland event loop
     let mut event_queue = app.event_queue.take().unwrap();
@@ -76,18 +76,16 @@ fn main() {
 
         // Handle Wayland events for the example window
         let events = app.take_wayland_events();
-        if let Some(ref mut example_window_app) = example_window_app {
-            example_window_app.handle_events(&mut app, &events, &mut myapp1);
-        }
+        example_window_app.handle_events(&mut app, &events, &mut myapp1);
 
         // Handle close requests
         for event in &events {
             if let WaylandEvent::WindowRequestClose(win) = event {
-                if win == &example_window {
-                    println!("Example window close requested, exiting...");
+                println!("Example window close requested, exiting...");
+                if example_window_app.contains(win) {
                     example_window_app.take();
-                    return;
                 }
+                return;
             }
         }
     }

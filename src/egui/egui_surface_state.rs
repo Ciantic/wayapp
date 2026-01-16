@@ -155,6 +155,14 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
         self.kind.get_wl_surface()
     }
 
+    pub fn get_kind(&self) -> &Kind {
+        &self.kind
+    }
+
+    pub fn contains<V: Into<Kind>>(&self, other: V) -> bool {
+        self.kind == other.into()
+    }
+
     fn configure(&mut self, app: &Application, width: u32, height: u32) {
         trace!(
             "Configuring EGUI surface {} to {}x{}",
@@ -455,5 +463,34 @@ impl<T: Into<Kind> + Clone> Deref for EguiSurfaceState<T> {
 impl<T: Into<Kind> + Clone> DerefMut for EguiSurfaceState<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.t
+    }
+}
+
+/// Helper trait to allow calling `contains` on `Option<EguiSurfaceState<T>>`
+pub trait OptionEguiSurfaceStateExt<T: Into<Kind> + Clone> {
+    fn contains<V: Into<Kind>>(&self, other: V) -> bool;
+
+    fn handle_events(
+        &mut self,
+        app: &mut Application,
+        events: &[WaylandEvent],
+        ui: &mut impl EguiAppData,
+    ) -> ();
+}
+
+impl<T: Into<Kind> + Clone> OptionEguiSurfaceStateExt<T> for Option<EguiSurfaceState<T>> {
+    fn contains<V: Into<Kind>>(&self, other: V) -> bool {
+        self.as_ref().map_or(false, |s| s.contains(other))
+    }
+
+    fn handle_events(
+        &mut self,
+        app: &mut Application,
+        events: &[WaylandEvent],
+        ui: &mut impl EguiAppData,
+    ) -> () {
+        if let Some(surface_state) = self {
+            surface_state.handle_events(app, events, ui);
+        }
     }
 }

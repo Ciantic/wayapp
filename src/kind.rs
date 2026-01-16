@@ -1,4 +1,3 @@
-use crate::Application;
 ///! View manager for different kinds of surfaces
 use smithay_client_toolkit::shell::WaylandSurface;
 use smithay_client_toolkit::shell::wlr_layer::LayerSurface;
@@ -6,7 +5,6 @@ use smithay_client_toolkit::shell::xdg::popup::Popup;
 use smithay_client_toolkit::shell::xdg::window::Window;
 use wayland_backend::client::ObjectId;
 use wayland_client::Proxy;
-use wayland_client::QueueHandle;
 use wayland_client::protocol::wl_subsurface::WlSubsurface;
 use wayland_client::protocol::wl_surface::WlSurface;
 
@@ -81,6 +79,7 @@ impl PartialEq for Kind {
 }
 impl Eq for Kind {}
 
+// Cast implementations
 impl From<Window> for Kind {
     fn from(window: Window) -> Self {
         Kind::Window(window)
@@ -124,40 +123,5 @@ impl From<(WlSurface, WlSubsurface, WlSurface)> for Kind {
             subsurface,
             surface,
         }
-    }
-}
-
-pub trait RequestFrame {
-    fn request_frame(&self, qh: &QueueHandle<Application>);
-}
-
-impl RequestFrame for LayerSurface {
-    fn request_frame(&self, qh: &QueueHandle<Application>) {
-        let wl_surface = self.wl_surface();
-        wl_surface.frame(qh, wl_surface.clone());
-        wl_surface.commit();
-    }
-}
-
-impl RequestFrame for Window {
-    fn request_frame(&self, qh: &QueueHandle<Application>) {
-        let wl_surface = self.wl_surface();
-        wl_surface.frame(qh, wl_surface.clone());
-        wl_surface.commit();
-    }
-}
-
-impl RequestFrame for Popup {
-    fn request_frame(&self, qh: &QueueHandle<Application>) {
-        let wl_surface = self.wl_surface();
-        wl_surface.frame(qh, wl_surface.clone());
-        wl_surface.commit();
-    }
-}
-
-impl RequestFrame for WlSurface {
-    fn request_frame(&self, qh: &QueueHandle<Application>) {
-        self.frame(qh, self.clone());
-        self.commit();
     }
 }
