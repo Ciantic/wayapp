@@ -6,9 +6,7 @@ use smithay_client_toolkit::shell::wlr_layer::Anchor;
 use smithay_client_toolkit::shell::wlr_layer::KeyboardInteractivity;
 use smithay_client_toolkit::shell::wlr_layer::Layer;
 use smithay_client_toolkit::shell::wlr_layer::LayerSurface;
-use wayapp::Application;
-use wayapp::EguiAppData;
-use wayapp::EguiViewManager;
+use wayapp::*;
 
 struct EguiApp {
     layer_surface: LayerSurface,
@@ -25,9 +23,9 @@ struct EguiApp {
 }
 
 impl EguiApp {
-    fn new(layer_surface: LayerSurface) -> Self {
+    fn new(layer_surface: &LayerSurface) -> Self {
         Self {
-            layer_surface,
+            layer_surface: layer_surface.clone(),
             width: 512,
             height: 512,
             margin_top: 0,
@@ -131,26 +129,26 @@ impl EguiAppData for EguiApp {
 }
 
 fn main() {
-    unsafe { std::env::set_var("RUST_LOG", "debug") };
+    unsafe { std::env::set_var("RUST_LOG", "wayapp=trace") };
     env_logger::init();
     let mut app = Application::new();
-    let mut egui_manager = EguiViewManager::new();
 
+    // Example layer surface --------------------------
+    let layer_wl_surface = app.compositor_state.create_surface(&app.qh);
     let layer_surface = app.layer_shell.create_layer_surface(
         &app.qh,
-        app.compositor_state.create_surface(&app.qh),
+        layer_wl_surface.clone(),
         Layer::Top,
         Some("Example2"),
         None,
     );
     layer_surface.set_keyboard_interactivity(KeyboardInteractivity::Exclusive);
-    // layer_surface.set_anchor(Anchor::BOTTOM | Anchor::LEFT);
     layer_surface.set_margin(0, 0, 0, 0);
     layer_surface.set_size(512, 512);
     layer_surface.commit();
-    let egui_app = EguiApp::new(layer_surface.clone());
 
-    egui_manager.add_layer_surface(&app, layer_surface, egui_app, 512, 512);
+    let mut my_app = EguiApp::new(&layer_surface);
+    let mut egui_surface = EguiSurfaceState::from_layer_surface(&app, &layer_surface);
 
     // Run the Wayland event loop
     let mut event_queue = app.event_queue.take().unwrap();
@@ -160,6 +158,6 @@ fn main() {
             .expect("Wayland dispatch failed");
 
         let events = app.take_wayland_events();
-        egui_manager.handle_events(&mut app, &events);
+        egui_surface.handle_events(&mut app, &events, &mut my_app);
     }
 }

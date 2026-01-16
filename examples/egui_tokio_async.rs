@@ -7,9 +7,7 @@ use smithay_client_toolkit::shell::wlr_layer::Layer;
 use smithay_client_toolkit::shell::xdg::window::WindowDecorations;
 use tokio::select;
 use tokio::task::spawn_blocking;
-use wayapp::Application;
-use wayapp::EguiAppData;
-use wayapp::EguiViewManager;
+use wayapp::*;
 
 struct EguiApp {
     counter: i32,
@@ -67,9 +65,8 @@ async fn main() {
     unsafe { std::env::set_var("RUST_LOG", "wayapp=trace") };
     env_logger::init();
     let mut app = Application::new();
-    let mut egui_manager = EguiViewManager::new();
-    let egui_app = EguiApp::default();
-    let egui_app2 = EguiApp::default();
+    let mut myapp1 = EguiApp::default();
+    let mut myapp2 = EguiApp::default();
 
     // Create example window
     let example_win_surface = app.compositor_state.create_surface(&app.qh);
@@ -83,7 +80,7 @@ async fn main() {
     example_window.set_min_size(Some((256, 256)));
     example_window.commit();
 
-    egui_manager.add_window(&app, example_window, egui_app, 400, 300);
+    let mut example_window_app = EguiSurfaceState::from_window(&app, &example_window);
 
     // Create layer surface
     let shared_surface = app.compositor_state.create_surface(&app.qh);
@@ -100,7 +97,7 @@ async fn main() {
     layer_surface.set_size(256, 256);
     layer_surface.commit();
 
-    egui_manager.add_layer_surface(&app, layer_surface, egui_app2, 256, 256);
+    let mut layer_surface_app = EguiSurfaceState::from_layer_surface(&app, &layer_surface);
 
     // Create channel for external events
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AppEvent>();
@@ -136,7 +133,8 @@ async fn main() {
                 println!("[ASYNC MAIN] ✓ Dispatched Wayland events on thread {:?}", std::thread::current().id());
                 let _ = event_queue.dispatch_pending(&mut app);
                 let events = app.take_wayland_events();
-                egui_manager.handle_events(&mut app, &events);
+                example_window_app.handle_events(&mut app, &events, &mut myapp1);
+                layer_surface_app.handle_events(&mut app, &events, &mut myapp2);
             }
 
             // Mock of other async events
