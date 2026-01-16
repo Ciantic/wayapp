@@ -80,7 +80,7 @@ async fn main() {
     example_window.set_min_size(Some((256, 256)));
     example_window.commit();
 
-    let mut example_window_app = EguiSurfaceState::new(&app, &example_window);
+    let mut example_window_app = EguiSurfaceState::new(&app, &example_window, 256, 256);
 
     // Create layer surface
     let shared_surface = app.compositor_state.create_surface(&app.qh);
@@ -97,7 +97,7 @@ async fn main() {
     layer_surface.set_size(256, 256);
     layer_surface.commit();
 
-    let mut layer_surface_app = EguiSurfaceState::new(&app, &layer_surface);
+    let mut layer_surface_app = EguiSurfaceState::new(&app, &layer_surface, 256, 256);
 
     // Create channel for external events
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AppEvent>();

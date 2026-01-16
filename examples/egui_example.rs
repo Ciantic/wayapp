@@ -66,24 +66,22 @@ fn main() {
         .cloned();
 
     // Example window --------------------------
-    let example_win_surface = app.compositor_state.create_surface(&app.qh);
     let example_window = app.xdg_shell.create_window(
-        example_win_surface,
+        app.compositor_state.create_surface(&app.qh),
         WindowDecorations::ServerDefault,
         &app.qh,
     );
     example_window.set_title("Example Window");
     example_window.set_app_id("io.github.ciantic.wayapp.ExampleWindow");
-    example_window.set_min_size(Some((256, 256)));
+    // example_window.set_min_size(Some((1, 1)));
     example_window.commit();
 
-    let mut example_window_app = EguiSurfaceState::new(&app, &example_window);
+    let mut example_window_app = EguiSurfaceState::new(&app, &example_window, 256, 256);
 
     // Example layer surface --------------------------
-    let layer_wl_surface = app.compositor_state.create_surface(&app.qh);
     let layer_surface = app.layer_shell.create_layer_surface(
         &app.qh,
-        layer_wl_surface.clone(),
+        app.compositor_state.create_surface(&app.qh),
         Layer::Top,
         Some("Example2"),
         first_monitor.as_ref(),
@@ -104,7 +102,7 @@ fn main() {
     }));
     layer_surface.commit();
 
-    let mut layer_surface_app = EguiSurfaceState::new(&app, &layer_surface);
+    let mut layer_surface_app = EguiSurfaceState::new(&app, &layer_surface, 256, 256);
 
     // Run the Wayland event loop
     let mut event_queue = app.event_queue.take().unwrap();

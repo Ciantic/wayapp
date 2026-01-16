@@ -6,7 +6,6 @@
 #![allow(dead_code)]
 
 use crate::Application;
-use crate::ViewManager;
 use crate::WaylandEvent;
 use crate::egui_new::EguiWgpuRenderer;
 use egui::Event;

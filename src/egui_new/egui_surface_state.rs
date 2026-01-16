@@ -7,7 +7,6 @@
 
 use crate::Application;
 use crate::Kind;
-use crate::ViewManager;
 use crate::WaylandEvent;
 use crate::WaylandToEguiInput;
 use crate::egui_new::EguiWgpuRenderer;
@@ -70,6 +69,8 @@ pub struct EguiSurfaceState<T: Into<Kind> + Clone> {
     renderer: EguiWgpuRenderer,
     input_state: WaylandToEguiInput,
     queue_handle: QueueHandle<Application>,
+    init_width: u32,
+    init_height: u32,
     width: u32,  // WGPU Surface width in logical pixels
     height: u32, // WGPU Surface height in logical pixels
     scale_factor: i32,
@@ -80,7 +81,7 @@ pub struct EguiSurfaceState<T: Into<Kind> + Clone> {
 }
 
 impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
-    pub fn new(app: &Application, t: T) -> Self {
+    pub fn new(app: &Application, t: T, width: u32, height: u32) -> Self {
         let kind = t.clone().into();
         let wl_surface = kind.get_wl_surface();
         let raw_display_handle = RawDisplayHandle::Wayland(WaylandDisplayHandle::new(
@@ -138,8 +139,10 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
             renderer,
             input_state,
             queue_handle: app.qh.clone(),
-            width: 1,
-            height: 1,
+            init_height: height,
+            init_width: width,
+            width,
+            height,
             scale_factor: 1,
             surface_config: None,
             output_format,
@@ -354,12 +357,12 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
                     let width = configure
                         .new_size
                         .0
-                        .unwrap_or_else(|| NonZero::new(256).unwrap())
+                        .unwrap_or_else(|| NonZero::new(self.init_width).unwrap())
                         .get();
                     let height = configure
                         .new_size
                         .1
-                        .unwrap_or_else(|| NonZero::new(256).unwrap())
+                        .unwrap_or_else(|| NonZero::new(self.init_height).unwrap())
                         .get();
 
                     self.configure(app, width, height);

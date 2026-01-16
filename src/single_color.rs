@@ -2,7 +2,7 @@
 ///!
 ///! Use this as an example to how to start implementing your own containers.
 use crate::Application;
-use crate::ViewManager;
+use crate::Kind;
 use crate::WaylandEvent;
 use egui::ahash::HashMap;
 use log::trace;
@@ -18,165 +18,93 @@ use wayland_client::protocol::wl_shm;
 use wayland_client::protocol::wl_surface::WlSurface;
 use wayland_protocols::wp::viewporter::client::wp_viewport::WpViewport;
 
-#[derive(Debug, Default)]
-pub struct SingleColorState {
+#[derive(Debug)]
+pub struct SingleColorState<T: Into<Kind> + Clone> {
+    t: T,
+    kind: Kind,
     slotpool: Option<SlotPool>,
     viewport: Option<WpViewport>,
     color: (u8, u8, u8),
+    last_buffer_update: Option<Instant>,
+    init_width: u32,
+    init_height: u32,
 }
 
-impl SingleColorState {
-    pub fn new(color: (u8, u8, u8)) -> Self {
+impl<T: Into<Kind> + Clone> SingleColorState<T> {
+    pub fn new(t: T, color: (u8, u8, u8), width: u32, height: u32) -> Self {
         Self {
+            kind: t.clone().into(),
+            t,
             slotpool: None,
             viewport: None,
             color,
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct SingleColorManager {
-    view_manager: ViewManager<SingleColorState>,
-    // Track last buffer update per surface
-    last_buffer_update: HashMap<ObjectId, Instant>,
-}
-
-impl Default for SingleColorManager {
-    fn default() -> Self {
-        Self {
-            view_manager: ViewManager::default(),
-            last_buffer_update: HashMap::default(),
-        }
-    }
-}
-
-// Deref to ViewManager
-impl std::ops::Deref for SingleColorManager {
-    type Target = ViewManager<SingleColorState>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.view_manager
-    }
-}
-
-impl std::ops::DerefMut for SingleColorManager {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.view_manager
-    }
-}
-
-impl SingleColorManager {
-    pub fn new() -> Self {
-        Self {
-            view_manager: ViewManager::default(),
-            last_buffer_update: HashMap::default(),
+            last_buffer_update: None,
+            init_width: width,
+            init_height: height,
         }
     }
 
-    fn resize_viewport(&mut self, app: &Application, surface: &WlSurface, width: u32, height: u32) {
+    pub fn wl_surface(&self) -> &WlSurface {
+        self.kind.get_wl_surface()
+    }
+
+    fn resize_viewport(&mut self, app: &Application, width: u32, height: u32) {
+        let surface = self.wl_surface().clone();
         let surface_id = surface.id();
 
-        if let Some(state) = self.view_manager.get_data_by_id_mut(&surface_id) {
-            let viewport = state.viewport.get_or_insert_with(|| {
-                trace!(
-                    "[SINGLE_COLOR] Creating viewport for surface {:?}",
-                    surface_id
-                );
-                app.viewporter
-                    .get()
-                    .expect("wp_viewporter not available")
-                    .get_viewport(surface, &app.qh, ())
-            });
-
-            viewport.set_destination(width as i32, height as i32);
-        }
-
-        // Handle subsurfaces
-        let viewporter = app.viewporter.get().expect("wp_viewporter not available");
-        let qh = &app.qh;
-
-        self.view_manager.execute_recursively_to_all_subsurfaces(
-            &surface,
-            move |_subsurface, sub_wlsurface, state| {
-                let viewport = state
-                    .viewport
-                    .get_or_insert_with(|| viewporter.get_viewport(sub_wlsurface, qh, ()));
-                viewport.set_destination(100, 30);
-            },
-        );
-    }
-
-    fn update_buffers(&mut self, app: &Application, surface: &WlSurface, width: u32, height: u32) {
-        let surface_id = surface.id();
-
-        if let Some(state) = self.view_manager.get_data_by_id_mut(&surface_id) {
-            let viewport = state.viewport.as_ref().expect("Viewport should exist");
-
-            let pool = state.slotpool.get_or_insert_with(|| {
-                trace!("[SINGLE_COLOR] Creating buffer pool");
-                SlotPool::new((width * height * 4).try_into().unwrap(), &app.shm_state)
-                    .expect("Failed to create SlotPool")
-            });
-
-            single_color_example_buffer_configure(
-                pool,
-                surface,
-                viewport,
-                &app.qh,
-                width,
-                height,
-                state.color,
+        let viewport = self.viewport.get_or_insert_with(|| {
+            trace!(
+                "[SINGLE_COLOR] Creating viewport for surface {:?}",
+                surface_id
             );
-        }
+            app.viewporter
+                .get()
+                .expect("wp_viewporter not available")
+                .get_viewport(&surface, &app.qh, ())
+        });
 
-        // Handle subsurfaces
-        let shm_state = &app.shm_state;
-        let qh = &app.qh;
+        viewport.set_destination(width as i32, height as i32);
+    }
 
-        self.view_manager.execute_recursively_to_all_subsurfaces(
-            &surface,
-            move |_subsurface, sub_wlsurface, state| {
-                let viewport = state.viewport.as_ref().expect("Viewport should exist");
+    fn update_buffers(&mut self, app: &Application, width: u32, height: u32) {
+        let surface = self.wl_surface().clone();
+        let viewport = self.viewport.as_ref().expect("Viewport should exist");
+        let pool = self.slotpool.get_or_insert_with(|| {
+            trace!("[SINGLE_COLOR] Creating buffer pool");
+            SlotPool::new((width * height * 4).try_into().unwrap(), &app.shm_state)
+                .expect("Failed to create SlotPool")
+        });
 
-                let pool = state.slotpool.get_or_insert_with(|| {
-                    SlotPool::new((100 * 30 * 4).try_into().unwrap(), shm_state)
-                        .expect("Failed to create SlotPool")
-                });
-
-                single_color_example_buffer_configure(
-                    pool,
-                    sub_wlsurface,
-                    viewport,
-                    qh,
-                    100,
-                    30,
-                    state.color,
-                );
-            },
+        single_color_example_buffer_configure(
+            pool, &surface, viewport, &app.qh, width, height, self.color,
         );
     }
 
-    fn configure(&mut self, app: &Application, surface: &WlSurface, width: u32, height: u32) {
+    fn configure(&mut self, app: &Application, width: u32, height: u32) {
+        trace!(
+            "[SINGLE_COLOR] Configure received for surface {:?}: {}x{}",
+            self.wl_surface().id(),
+            width,
+            height
+        );
         const DEBOUNCE_MS: u64 = 32; // ~30fps, adjust as needed
+        let surface = self.wl_surface().clone();
 
-        let surface_id = surface.id();
         let now = Instant::now();
 
         // Always resize viewport (fast operation)
-        self.resize_viewport(app, surface, width, height);
+        self.resize_viewport(app, width, height);
 
         // Check if we should update buffers (debounced)
-        let should_update_buffer = if let Some(last_time) = self.last_buffer_update.get(&surface_id)
-        {
-            now.duration_since(*last_time) >= Duration::from_millis(DEBOUNCE_MS)
+        let should_update_buffer = if let Some(last_time) = self.last_buffer_update {
+            now.duration_since(last_time) >= Duration::from_millis(DEBOUNCE_MS)
         } else {
             true // First configure, always update
         };
 
         if should_update_buffer {
             // Update buffers (slow operation)
-            self.update_buffers(app, surface, width, height);
+            self.update_buffers(app, width, height);
             // TODO: BUG, this is not called when configures come too fast
         } else {
             // Just commit the surface with the new viewport destination
@@ -184,34 +112,39 @@ impl SingleColorManager {
         }
 
         // Always update the timestamp to reset the debounce timer
-        self.last_buffer_update.insert(surface_id, now);
+        self.last_buffer_update = Some(now);
     }
 
     pub fn handle_events(&mut self, app: &Application, events: &[WaylandEvent]) {
         for event in events {
+            if let Some(surface) = event.get_wl_surface() {
+                if surface.id() != self.wl_surface().id() {
+                    continue;
+                }
+            }
             match event {
-                WaylandEvent::WindowConfigure(window, configure) => {
+                WaylandEvent::WindowConfigure(_, configure) => {
                     let width = configure
                         .new_size
                         .0
-                        .unwrap_or_else(|| NonZero::new(256).unwrap())
+                        .unwrap_or_else(|| NonZero::new(self.init_width).unwrap())
                         .get();
                     let height = configure
                         .new_size
                         .1
-                        .unwrap_or_else(|| NonZero::new(256).unwrap())
+                        .unwrap_or_else(|| NonZero::new(self.init_height).unwrap())
                         .get();
-                    self.configure(app, &window.wl_surface(), width, height);
+                    self.configure(app, width, height);
                 }
-                WaylandEvent::LayerShellConfigure(layer_surface, config) => {
+                WaylandEvent::LayerShellConfigure(_, config) => {
                     let width = config.new_size.0;
                     let height = config.new_size.1;
-                    self.configure(app, &layer_surface.wl_surface(), width, height);
+                    self.configure(app, width, height);
                 }
-                WaylandEvent::PopupConfigure(popup, config) => {
+                WaylandEvent::PopupConfigure(_, config) => {
                     let width = config.width as u32;
                     let height = config.height as u32;
-                    self.configure(app, &popup.wl_surface(), width, height);
+                    self.configure(app, width, height);
                 }
                 _ => {}
             }

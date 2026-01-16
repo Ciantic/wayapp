@@ -134,10 +134,9 @@ fn main() {
     let mut app = Application::new();
 
     // Example layer surface --------------------------
-    let layer_wl_surface = app.compositor_state.create_surface(&app.qh);
     let layer_surface = app.layer_shell.create_layer_surface(
         &app.qh,
-        layer_wl_surface.clone(),
+        app.compositor_state.create_surface(&app.qh),
         Layer::Top,
         Some("Example2"),
         None,
@@ -148,7 +147,7 @@ fn main() {
     layer_surface.commit();
 
     let mut my_app = EguiApp::new(&layer_surface);
-    let mut egui_surface = EguiSurfaceState::new(&app, &layer_surface);
+    let mut egui_surface = EguiSurfaceState::new(&app, &layer_surface, 512, 512);
 
     // Run the Wayland event loop
     let mut event_queue = app.event_queue.take().unwrap();
