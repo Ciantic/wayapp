@@ -10,8 +10,4 @@ Currently uses only EGUI WGPU rendering.
 
 ## ICED
 
-This is not yet implemented, plan is to integrate first iced-wgpu.
-
-## Future changes
-
-Maybe change `Application` to hold only `Weak` references to the `WindowContainer`/`LayerSurfaceContainer`/`PopupContainer`/`SubsurfaceContainer`, because it's not the responsibility of the `Application` to keep those alive, it's the responsibility of the main.
+I don't know will I ever get to ICED integration, but it is planned.
