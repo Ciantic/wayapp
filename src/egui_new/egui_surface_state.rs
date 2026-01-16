@@ -411,16 +411,19 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
                 WaylandEvent::KeyPress(key_event) => {
                     if self.has_keyboard_focus {
                         self.handle_keyboard_event(key_event, true, false);
+                        app.conn.flush().unwrap();
                     }
                 }
                 WaylandEvent::KeyRelease(key_event) => {
                     if self.has_keyboard_focus {
                         self.handle_keyboard_event(key_event, false, false);
+                        app.conn.flush().unwrap();
                     }
                 }
                 WaylandEvent::KeyRepeat(key_event) => {
                     if self.has_keyboard_focus {
                         self.handle_keyboard_event(key_event, true, true);
+                        app.conn.flush().unwrap();
                     }
                 }
                 WaylandEvent::ModifiersChanged(modifiers) => {
