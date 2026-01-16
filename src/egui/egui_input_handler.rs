@@ -7,7 +7,6 @@
 
 use crate::Application;
 use crate::WaylandEvent;
-use crate::egui_new::EguiWgpuRenderer;
 use egui::Event;
 use egui::Key;
 use egui::Modifiers as EguiModifiers;

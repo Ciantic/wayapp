@@ -6,10 +6,10 @@
 #![allow(dead_code)]
 
 use crate::Application;
+use crate::EguiWgpuRenderer;
 use crate::Kind;
 use crate::WaylandEvent;
 use crate::WaylandToEguiInput;
-use crate::egui_new::EguiWgpuRenderer;
 use crate::egui_to_cursor_shape;
 use egui::Event;
 use egui::Key;
