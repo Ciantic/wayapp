@@ -4,14 +4,13 @@
 use crate::Application;
 use crate::Kind;
 use crate::WaylandEvent;
-use egui::ahash::HashMap;
 use log::trace;
-use smithay_client_toolkit::shell::WaylandSurface;
 use smithay_client_toolkit::shm::slot::SlotPool;
 use std::num::NonZero;
+use std::ops::Deref;
+use std::ops::DerefMut;
 use std::time::Duration;
 use std::time::Instant;
-use wayland_backend::client::ObjectId;
 use wayland_client::Proxy;
 use wayland_client::QueueHandle;
 use wayland_client::protocol::wl_shm;
@@ -194,4 +193,18 @@ fn single_color_example_buffer_configure(
     surface.frame(qh, surface.clone());
     buffer.attach_to(surface).expect("buffer attach");
     surface.commit();
+}
+
+impl<T: Into<Kind> + Clone> Deref for SingleColorState<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.t
+    }
+}
+
+impl<T: Into<Kind> + Clone> DerefMut for SingleColorState<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.t
+    }
 }
