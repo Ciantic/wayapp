@@ -142,7 +142,29 @@ impl<A: EguiAppData> EguiSurfaceState<A> {
         }
     }
 
+    pub fn from_layer_surface(
+        app: &Application,
+        layer_surface: &LayerSurface,
+        egui_app: A,
+    ) -> Self {
+        Self::new(app, layer_surface.wl_surface().clone(), egui_app)
+    }
+
+    pub fn from_popup(app: &Application, popup: &Popup, egui_app: A) -> Self {
+        Self::new(app, popup.wl_surface().clone(), egui_app)
+    }
+
+    pub fn from_window(app: &Application, window: &Window, egui_app: A) -> Self {
+        Self::new(app, window.wl_surface().clone(), egui_app)
+    }
+
     fn configure(&mut self, app: &Application, width: u32, height: u32) {
+        trace!(
+            "Configuring EGUI surface {} to {}x{}",
+            self.wl_surface.id(),
+            width,
+            height
+        );
         const DEBOUNCE_MS: u64 = 16; // ~60fps, adjust as needed
 
         let now = Instant::now();
@@ -183,42 +205,51 @@ impl<A: EguiAppData> EguiSurfaceState<A> {
     }
 
     fn update_buffers(&mut self, width: u32, height: u32) {
+        trace!(
+            "Updating EGUI surface {} buffers to {}x{}",
+            self.wl_surface.id(),
+            width,
+            height
+        );
         self.width = width.max(1);
         self.height = height.max(1);
         self.input_state.set_screen_size(self.width, self.height);
         self.reconfigure_surface();
-        self.render();
+        self.request_frame();
     }
 
-    fn frame(&mut self, _time: u32) {
-        self.render();
+    fn frame(&mut self, _time: u32) -> PlatformOutput {
+        self.render()
     }
 
-    fn handle_pointer_event(&mut self, event: &PointerEvent) -> Option<Shape> {
+    fn handle_pointer_event(&mut self, event: &PointerEvent) {
         self.input_state.handle_pointer_event(event);
-        let platform_output = self.render();
-        Some(egui_to_cursor_shape(platform_output.cursor_icon))
+        self.request_frame();
+
+        // TODO: How to handle cursor shape changes properly?
+        // let platform_output = self.render();
+        // Some(egui_to_cursor_shape(platform_output.cursor_icon))
     }
 
     fn handle_keyboard_enter(&mut self) {
         self.input_state.handle_keyboard_enter();
-        self.render();
+        self.request_frame();
     }
 
     fn handle_keyboard_leave(&mut self) {
         self.input_state.handle_keyboard_leave();
-        self.render();
+        self.request_frame();
     }
 
     fn handle_keyboard_event(&mut self, event: &KeyEvent, pressed: bool, repeat: bool) {
         self.input_state
             .handle_keyboard_event(event, pressed, repeat);
-        self.render();
+        self.request_frame();
     }
 
     fn update_modifiers(&mut self, modifiers: &WaylandModifiers) {
         self.input_state.update_modifiers(modifiers);
-        self.render();
+        self.request_frame();
     }
 
     fn scale_factor_changed(&mut self, new_factor: i32) {
@@ -229,7 +260,13 @@ impl<A: EguiAppData> EguiSurfaceState<A> {
         }
         self.scale_factor = factor;
         self.reconfigure_surface();
-        self.render();
+        self.request_frame();
+    }
+
+    fn request_frame(&mut self) {
+        self.wl_surface
+            .frame(&self.queue_handle, self.wl_surface.clone());
+        self.wl_surface.commit();
     }
 
     fn render(&mut self) -> PlatformOutput {
@@ -319,6 +356,78 @@ impl<A: EguiAppData> EguiSurfaceState<A> {
 
     fn physical_scale(&self) -> u32 {
         self.scale_factor.max(1) as u32
+    }
+
+    /// Handle Wayland events and update surfaces accordingly
+    /// Returns an optional cursor shape change
+    pub fn handle_events(&mut self, app: &mut Application, events: &[WaylandEvent]) {
+        for event in events {
+            match event {
+                WaylandEvent::WindowConfigure(window, configure) => {
+                    let width = configure
+                        .new_size
+                        .0
+                        .unwrap_or_else(|| NonZero::new(256).unwrap())
+                        .get();
+                    let height = configure
+                        .new_size
+                        .1
+                        .unwrap_or_else(|| NonZero::new(256).unwrap())
+                        .get();
+                    self.configure(app, width, height);
+                    self.frame(0);
+                }
+                WaylandEvent::LayerShellConfigure(layer_surface, config) => {
+                    let width = config.new_size.0;
+                    let height = config.new_size.1;
+
+                    self.configure(app, width, height);
+                }
+                WaylandEvent::PopupConfigure(popup, config) => {
+                    let width = config.width as u32;
+                    let height = config.height as u32;
+
+                    self.configure(app, width, height);
+                }
+                WaylandEvent::Frame(surface, time) => {
+                    let output = self.frame(*time);
+                    app.set_cursor(egui_to_cursor_shape(output.cursor_icon));
+                }
+                WaylandEvent::ScaleFactorChanged(surface, factor) => {
+                    self.scale_factor_changed(*factor);
+                }
+                WaylandEvent::PointerEvent(events) => {
+                    for (surface, position, event_kind) in events {
+                        self.handle_pointer_event(&PointerEvent {
+                            surface: surface.clone(),
+                            position: position.clone(),
+                            kind: event_kind.clone(),
+                        });
+                    }
+                }
+                WaylandEvent::KeyboardEnter(surface, _serials, _keysyms) => {
+                    // self.keyboard_focused_surface = Some(surface.id());
+                    self.handle_keyboard_enter();
+                }
+                WaylandEvent::KeyboardLeave(surface) => {
+                    self.handle_keyboard_leave();
+                }
+                WaylandEvent::KeyPress(key_event) => {
+                    self.handle_keyboard_event(key_event, true, false);
+                }
+                WaylandEvent::KeyRelease(key_event) => {
+                    self.handle_keyboard_event(key_event, false, false);
+                }
+                WaylandEvent::KeyRepeat(key_event) => {
+                    self.handle_keyboard_event(key_event, true, true);
+                }
+                WaylandEvent::ModifiersChanged(modifiers) => {
+                    // Update modifiers for focused surface only
+                    self.update_modifiers(modifiers);
+                }
+                _ => {}
+            }
+        }
     }
 }
 
@@ -418,11 +527,11 @@ impl<A: EguiAppData> EguiViewManager<A> {
                                 position: _pos.clone(),
                                 kind: event_kind.clone(),
                             };
-                            if let Some(cursor_shape) =
-                                surface_state.handle_pointer_event(&pointer_event)
-                            {
-                                app.set_cursor(cursor_shape);
-                            }
+                            // if let Some(cursor_shape) =
+                            //     surface_state.handle_pointer_event(&
+                            // pointer_event) {
+                            //     app.set_cursor(cursor_shape);
+                            // }
                         }
                     }
                 }

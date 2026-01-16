@@ -53,9 +53,10 @@ impl EguiAppData for EguiApp {
 }
 
 fn main() {
+    unsafe { std::env::set_var("RUST_LOG", "wayapp=trace") };
     env_logger::init();
     let mut app = Application::new();
-    let mut egui_manager = EguiViewManager::new();
+    // let mut egui_manager = EguiViewManager::new();
 
     // Example window --------------------------
     let example_win_surface = app.compositor_state.create_surface(&app.qh);
@@ -69,7 +70,8 @@ fn main() {
     example_window.set_min_size(Some((256, 256)));
     example_window.commit();
 
-    egui_manager.add_window(&app, example_window, EguiApp::default(), 256, 256);
+    let mut example_window_app =
+        EguiSurfaceState::from_window(&app, &example_window, EguiApp::default());
 
     // Example layer surface --------------------------
     let shared_surface = app.compositor_state.create_surface(&app.qh);
@@ -86,8 +88,8 @@ fn main() {
     layer_surface.set_size(256, 256);
     layer_surface.commit();
 
-    let my_egui_app =
-        egui_manager.add_layer_surface(&app, layer_surface, EguiApp::default(), 256, 256);
+    let mut layer_surface_app =
+        EguiSurfaceState::from_layer_surface(&app, &layer_surface, EguiApp::default());
 
     // Run the Wayland event loop
     let mut event_queue = app.event_queue.take().unwrap();
@@ -97,6 +99,7 @@ fn main() {
             .expect("Wayland dispatch failed");
 
         let events = app.take_wayland_events();
-        egui_manager.handle_events(&mut app, &events);
+        example_window_app.handle_events(&mut app, &events);
+        layer_surface_app.handle_events(&mut app, &events);
     }
 }
