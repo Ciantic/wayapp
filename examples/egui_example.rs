@@ -12,16 +12,14 @@ struct EguiApp {
     text: String,
 }
 
-impl Default for EguiApp {
-    fn default() -> Self {
+impl EguiApp {
+    fn new() -> Self {
         Self {
             counter: 0,
             text: "Hello from EGUI!".into(),
         }
     }
-}
 
-impl EguiAppData for EguiApp {
     fn ui(&mut self, ctx: &Context) {
         CentralPanel::default().show(ctx, |ui| {
             ui.heading("Egui WGPU / Smithay example");
@@ -56,8 +54,8 @@ fn main() {
     unsafe { std::env::set_var("RUST_LOG", "wayapp=trace") };
     env_logger::init();
     let mut app = Application::new();
-    let mut myapp1 = EguiApp::default();
-    let mut myapp2 = EguiApp::default();
+    let mut myapp1 = EguiApp::new();
+    let mut myapp2 = EguiApp::new();
     let first_monitor = app
         .output_state
         .outputs()
@@ -112,7 +110,7 @@ fn main() {
             .expect("Wayland dispatch failed");
 
         let events = app.take_wayland_events();
-        example_window_app.handle_events(&mut app, &events, &mut myapp1);
-        layer_surface_app.handle_events(&mut app, &events, &mut myapp2);
+        example_window_app.handle_events(&mut app, &events, &mut |ctx| myapp1.ui(ctx));
+        layer_surface_app.handle_events(&mut app, &events, &mut |ctx| myapp2.ui(ctx));
     }
 }

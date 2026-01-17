@@ -38,9 +38,7 @@ impl EguiApp {
             anchor_right: false,
         }
     }
-}
 
-impl EguiAppData for EguiApp {
     fn ui(&mut self, ctx: &Context) {
         ctx.set_visuals(egui::Visuals::light());
 
@@ -157,6 +155,6 @@ fn main() {
             .expect("Wayland dispatch failed");
 
         let events = app.take_wayland_events();
-        egui_surface.handle_events(&mut app, &events, &mut my_app);
+        egui_surface.handle_events(&mut app, &events, &mut |ctx| my_app.ui(ctx));
     }
 }

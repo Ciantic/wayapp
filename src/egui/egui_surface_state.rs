@@ -53,11 +53,6 @@ use wayland_client::protocol::wl_surface::WlSurface;
 use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::Shape;
 use wayland_protocols::wp::viewporter::client::wp_viewport::WpViewport;
 
-/// Trait that applications must implement to provide EGUI UI
-pub trait EguiAppData {
-    fn ui(&mut self, ctx: &egui::Context);
-}
-
 /// Surface-specific EGUI state
 pub struct EguiSurfaceState<T: Into<Kind> + Clone> {
     viewport: Option<WpViewport>,
@@ -257,7 +252,7 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
         wl_surface.commit();
     }
 
-    fn render(&mut self, ui: &mut impl EguiAppData) -> PlatformOutput {
+    fn render(&mut self, ui: &mut impl FnMut(&egui::Context)) -> PlatformOutput {
         // trace!("Rendering EGUI surface {}", self.wl_surface().id());
         let surface_texture = self
             .surface
@@ -290,7 +285,7 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
 
         let raw_input = self.input_state.take_raw_input();
         self.renderer.begin_frame(raw_input);
-        ui.ui(self.renderer.context());
+        ui(self.renderer.context());
 
         let screen_descriptor = ScreenDescriptor {
             size_in_pixels: [
@@ -352,7 +347,7 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
         &mut self,
         app: &mut Application,
         events: &[WaylandEvent],
-        ui: &mut impl EguiAppData,
+        ui: &mut impl FnMut(&egui::Context),
     ) {
         for event in events {
             if let Some(surface) = event.get_wl_surface() {
@@ -474,7 +469,7 @@ pub trait OptionEguiSurfaceStateExt<T: Into<Kind> + Clone> {
         &mut self,
         app: &mut Application,
         events: &[WaylandEvent],
-        ui: &mut impl EguiAppData,
+        ui: &mut impl FnMut(&egui::Context),
     ) -> ();
 }
 
@@ -487,7 +482,7 @@ impl<T: Into<Kind> + Clone> OptionEguiSurfaceStateExt<T> for Option<EguiSurfaceS
         &mut self,
         app: &mut Application,
         events: &[WaylandEvent],
-        ui: &mut impl EguiAppData,
+        ui: &mut impl FnMut(&egui::Context),
     ) -> () {
         if let Some(surface_state) = self {
             surface_state.handle_events(app, events, ui);
