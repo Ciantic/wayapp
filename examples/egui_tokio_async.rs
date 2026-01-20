@@ -5,9 +5,10 @@ use smithay_client_toolkit::shell::wlr_layer::Anchor;
 use smithay_client_toolkit::shell::wlr_layer::KeyboardInteractivity;
 use smithay_client_toolkit::shell::wlr_layer::Layer;
 use smithay_client_toolkit::shell::xdg::window::WindowDecorations;
-use tokio::select;
-use tokio::task::spawn_blocking;
+use std::sync::mpsc::Sender;
+use tokio::sync::mpsc::UnboundedSender;
 use wayapp::*;
+use wayland_client::Connection;
 
 struct EguiApp {
     counter: i32,
@@ -54,11 +55,13 @@ impl EguiApp {
 
 #[derive(Debug)]
 enum AppEvent {
+    WaylandDispatch,
     TimerTick(u32),
 }
 
-// #[tokio::main(flavor = "current_thread")]
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")] // This works
+// #[tokio::main] // This also works
+#[hotpath::main(percentiles = [100])]
 async fn main() {
     unsafe { std::env::set_var("RUST_LOG", "wayapp=trace") };
     env_logger::init();
@@ -100,59 +103,71 @@ async fn main() {
     // Create channel for external events
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AppEvent>();
 
-    // Spawn background tasks that generate events
-    let tx_clone = tx.clone();
-    tokio::spawn(async move {
+    spawn_ticking_thread(tx.clone());
+    let count_sender = spawn_wayland_lock_loop(tx.clone(), app.conn.clone());
+    let mut event_queue = app.event_queue.take().unwrap();
+    loop {
+        if let Some(event) = rx.recv().await {
+            match event {
+                AppEvent::TimerTick(tick) => {
+                    println!(
+                        "[ASYNC MAIN] ✓ Received timer tick: {} on thread {:?}",
+                        tick,
+                        std::thread::current().id()
+                    );
+                }
+                AppEvent::WaylandDispatch => {
+                    let count = event_queue.dispatch_pending(&mut app).unwrap();
+                    let events = app.take_wayland_events();
+                    example_window_app.handle_events(&mut app, &events, &mut |ctx| myapp1.ui(ctx));
+                    layer_surface_app.handle_events(&mut app, &events, &mut |ctx| myapp2.ui(ctx));
+                    let _ = count_sender.send(count);
+                }
+            }
+        }
+    }
+}
+
+fn spawn_ticking_thread(sender: UnboundedSender<AppEvent>) {
+    std::thread::spawn(move || {
         let mut tick = 0u32;
         loop {
-            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+            std::thread::sleep(std::time::Duration::from_millis(500));
             tick += 1;
             println!(
                 "[ASYNC TASK] Timer tick {} on thread {:?}",
                 tick,
                 std::thread::current().id()
             );
-            let _ = tx_clone.send(AppEvent::TimerTick(tick));
+            let _ = sender.send(AppEvent::TimerTick(tick));
         }
     });
+}
 
-    let mut event_queue = app.event_queue.take().unwrap();
-    loop {
-        select! {
-            // Wait for Wayland events, ideally I would like to figure out how to do this in a separate thread loop, because now it opens a lot of spawn_blocking threads
-            _ = spawn_blocking({
-                // Dispatch pending events and flush before blocking on read
-                let count = event_queue.dispatch_pending(&mut app).unwrap();
-                let conn = app.conn.clone();
-                move || {
-                    // See `EventQueue::blocking_dispatch` implementation
-                    if count > 0 {
-                        return;
-                    }
-                    conn.flush().unwrap();
-                    // This function execution can take sometimes seconds (if no events are coming)
-                    if let Some(guard) = conn.prepare_read() {
-                        guard.read_without_dispatch().unwrap();
-                    } else {
-                        // Goal is that this branch is never hit, it might hit on the first iteration though
-                        println!("♦️ Failed to read");
-                    }
-                }
-            }) => {
-                let events = app.take_wayland_events();
-                example_window_app.handle_events(&mut app, &events, &mut |ctx| myapp1.ui(ctx));
-                layer_surface_app.handle_events(&mut app, &events, &mut |ctx| myapp2.ui(ctx));
-            }
+fn spawn_wayland_lock_loop(sender: UnboundedSender<AppEvent>, conn: Connection) -> Sender<usize> {
+    // Initial trigger
+    sender.send(AppEvent::WaylandDispatch).unwrap();
 
-            // Mock of other async events
-            Some(event) = rx.recv() => {
-                match event {
-                    AppEvent::TimerTick(tick) => {
-                        println!("[ASYNC MAIN] ✓ Received timer tick: {} on thread {:?}",
-                            tick, std::thread::current().id());
-                    }
-                }
+    let (count_sender, count_reader) = std::sync::mpsc::channel::<usize>();
+    std::thread::spawn(move || {
+        loop {
+            // See `EventQueue::blocking_dispatch` implementation
+            let count = count_reader.recv().unwrap();
+            if count > 0 {
+                let _ = sender.send(AppEvent::WaylandDispatch);
+                continue;
             }
+            conn.flush().unwrap();
+
+            // This function execution can take sometimes seconds (if no events are coming)
+            if let Some(guard) = conn.prepare_read() {
+                guard.read_without_dispatch().unwrap();
+            } else {
+                // Goal is that this branch is never or very seldomly hit
+                println!("♦️♦️♦️♦️♦️ Failed to read");
+            }
+            let _ = sender.send(AppEvent::WaylandDispatch);
         }
-    }
+    });
+    count_sender
 }

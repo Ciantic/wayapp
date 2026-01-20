@@ -33,6 +33,7 @@ tokio = { version = "1.49.0", features = [
     "rt-multi-thread",
     "sync",
 ] }
+hotpath = { version = "0.9", features = ["hotpath", "hotpath-alloc"] }
 
 [lib]
 name = "wayapp"
