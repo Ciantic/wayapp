@@ -139,7 +139,6 @@ async fn main() {
                     }
                 }
             }) => {
-                println!("[ASYNC MAIN] ✓ Dispatched Wayland events on thread {:?}", std::thread::current().id());
                 let events = app.take_wayland_events();
                 example_window_app.handle_events(&mut app, &events, &mut |ctx| myapp1.ui(ctx));
                 layer_surface_app.handle_events(&mut app, &events, &mut |ctx| myapp2.ui(ctx));

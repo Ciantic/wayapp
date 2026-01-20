@@ -71,41 +71,6 @@ use wayland_protocols::wp::viewporter::client::wp_viewport::WpViewport;
 use wayland_protocols::wp::viewporter::client::wp_viewport::{self};
 use wayland_protocols::wp::viewporter::client::wp_viewporter::WpViewporter;
 
-/// Enum representing the kind of surface container stored in the application
-// enum Kind {
-//     Window(Box<dyn WindowContainer>),
-//     LayerSurface(Box<dyn LayerSurfaceContainer>),
-//     Popup(Box<dyn PopupContainer>),
-//     Subsurface(Box<dyn SubsurfaceContainer>),
-// }
-
-// trait WaylandManager {
-//     fn push(&mut self, kind_ref: KindRef<'_>);
-
-// }
-
-// pub static mut WAYAPP: MaybeUninit<Application> = MaybeUninit::uninit();
-
-// pub fn get_init_app() -> &'static mut Application {
-//     // Look behind you! A three-headed monkey!
-//     #[allow(static_mut_refs)]
-//     unsafe {
-//         WAYAPP.write(Application::new())
-//     };
-//     #[allow(static_mut_refs)]
-//     unsafe {
-//         WAYAPP.assume_init_mut()
-//     }
-// }
-
-// pub fn get_app<'a>() -> &'a mut Application {
-//     // Look behind you! A three-headed monkey!
-//     #[allow(static_mut_refs)]
-//     unsafe {
-//         WAYAPP.assume_init_mut()
-//     }
-// }
-
 /// Enum representing different Wayland events
 ///
 /// This is not same as smithay_client_toolkit events, this is an
@@ -167,25 +132,12 @@ pub struct Application {
     pub subcompositor_state: SubcompositorState,
     pub xdg_shell: XdgShell,
     pub layer_shell: LayerShell,
-    // windows: Vec<ObjectId>,
-    // layer_surfaces: Vec<ObjectId>,
-    // popups: Vec<ObjectId>,
-    // subsurfaces: Vec<ObjectId>,
-    // /// HashMap storing surface kind by ObjectId for quick lookup
-    // surfaces_by_id: HashMap<ObjectId, Kind>,
     pub clipboard: Clipboard,
-
     pub viewporter: SimpleGlobal<WpViewporter, 1>,
     cursor_shape_manager: CursorShapeManager,
-
-    /// For cursor set_shape to work serial parameter must match the latest
-    /// wl_pointer.enter or zwp_tablet_tool_v2.proximity_in serial number sent
-    /// to the client.
     last_pointer_enter_serial: Option<u32>,
     last_pointer: Option<WlPointer>,
-    // Cache cursor shape devices per pointer to avoid repeated protocol calls
     pointer_shape_devices: HashMap<ObjectId, WpCursorShapeDeviceV1>,
-    /// Currently focused keyboard surface
     keyboard_focused_surface: Option<ObjectId>,
 }
 
@@ -225,13 +177,6 @@ impl Application {
             compositor_state,
             xdg_shell,
             layer_shell,
-            // windows: Vec::new(),
-            // layer_surfaces: Vec::new(),
-            // popups: Vec::new(),
-            // subsurfaces: Vec::new(),
-            // surfaces_by_id: HashMap::new(),
-            // windows: Vec::new(),
-            // layer_surfaces: Vec::new(),
             clipboard,
             viewporter,
             cursor_shape_manager,
@@ -275,77 +220,6 @@ impl Application {
             device.set_shape(serial, shape);
         }
     }
-
-    // /// Push a window container to the application
-    // pub fn push_window<W: WindowContainer + 'static>(&mut self, window: W) {
-    //     let boxed_window: Box<dyn WindowContainer> = Box::new(window);
-    //     let surface_id = boxed_window.get_object_id();
-    //     self.windows.push(surface_id.clone());
-    //     self.surfaces_by_id
-    //         .insert(surface_id, Kind::Window(boxed_window));
-    // }
-
-    // /// Push a layer surface container to the application
-    // pub fn push_layer_surface(&mut self, layer_surface: impl
-    // LayerSurfaceContainer + 'static) {     let boxed_layer_surface: Box<dyn
-    // LayerSurfaceContainer> = Box::new(layer_surface);     let surface_id =
-    // boxed_layer_surface.get_object_id();     self.layer_surfaces.
-    // push(surface_id.clone());     self.surfaces_by_id
-    //         .insert(surface_id, Kind::LayerSurface(boxed_layer_surface));
-    // }
-
-    // /// Push a popup container to the application
-    // pub fn push_popup<P: PopupContainer + 'static>(&mut self, popup: P) {
-    //     let boxed_popup: Box<dyn PopupContainer> = Box::new(popup);
-    //     let surface_id = boxed_popup.get_object_id();
-    //     self.popups.push(surface_id.clone());
-    //     self.surfaces_by_id
-    //         .insert(surface_id, Kind::Popup(boxed_popup));
-    // }
-
-    // /// Push a subsurface container to the application
-    // pub fn push_subsurface<S: SubsurfaceContainer + 'static>(&mut self,
-    // subsurface: S) {     let boxed_subsurface: Box<dyn SubsurfaceContainer> =
-    // Box::new(subsurface);     let surface_id =
-    // boxed_subsurface.get_object_id();     self.subsurfaces.push(surface_id.
-    // clone());     self.surfaces_by_id
-    //         .insert(surface_id, Kind::Subsurface(boxed_subsurface));
-    // }
-
-    // /// Remove a window by its Window reference
-    // fn remove_window(&mut self, window: &Window) {
-    //     let surface_id = window.wl_surface().id();
-    //     self.windows.retain(|id| id != &surface_id);
-    //     self.surfaces_by_id.remove(&surface_id);
-    // }
-
-    // /// Remove a layer surface by its LayerSurface reference
-    // #[allow(dead_code)]
-    // fn remove_layer_surface(&mut self, layer_surface: &LayerSurface) {
-    //     let surface_id = layer_surface.wl_surface().id();
-    //     self.layer_surfaces.retain(|id| id != &surface_id);
-    //     self.surfaces_by_id.remove(&surface_id);
-    // }
-
-    // /// Remove a popup by its Popup reference
-    // #[allow(dead_code)]
-    // fn remove_popup(&mut self, popup: &Popup) {
-    //     let surface_id = popup.wl_surface().id();
-    //     self.popups.retain(|id| id != &surface_id);
-    //     self.surfaces_by_id.remove(&surface_id);
-    // }
-
-    // /// Remove a subsurface by its WlSurface reference
-    // #[allow(dead_code)]
-    // fn remove_subsurface(&mut self, subsurface: &WlSurface) {
-    //     let surface_id = subsurface.id();
-    //     self.subsurfaces.retain(|id| id != &surface_id);
-    //     self.surfaces_by_id.remove(&surface_id);
-    // }
-
-    // fn get_by_surface_id_mut(&mut self, surface_id: &ObjectId) -> Option<&mut
-    // Kind> {     self.surfaces_by_id.get_mut(surface_id)
-    // }
 }
 
 impl CompositorHandler for Application {
@@ -360,26 +234,6 @@ impl CompositorHandler for Application {
             surface.clone(),
             new_factor,
         ));
-
-        // if let Some(kind) = self.get_by_surface_id_mut(&surface_id) {
-        //     match kind {
-        //         Kind::Window(window) => {
-        //             window.scale_factor_changed(new_factor);
-        //         }
-        //         Kind::LayerSurface(layer_surface) => {
-        //             layer_surface.scale_factor_changed(new_factor);
-        //         }
-        //         Kind::Popup(popup) => {
-        //             popup.scale_factor_changed(new_factor);
-        //         }
-        //         Kind::Subsurface(subsurface) => {
-        //             subsurface.scale_factor_changed(new_factor);
-        //         }
-        //     }
-        // }
-
-        // _surface.frame(qh, _surface.clone());
-        // _surface.commit();
     }
 
     fn transform_changed(
@@ -391,23 +245,6 @@ impl CompositorHandler for Application {
     ) {
         self.wayland_events
             .push(WaylandEvent::TransformChanged(surface.clone()));
-
-        // if let Some(kind) = self.get_by_surface_id_mut(&surface_id) {
-        //     match kind {
-        //         Kind::Window(window) => {
-        //             window.transform_changed(&new_transform);
-        //         }
-        //         Kind::LayerSurface(layer_surface) => {
-        //             layer_surface.transform_changed(&new_transform);
-        //         }
-        //         Kind::Popup(popup) => {
-        //             popup.transform_changed(&new_transform);
-        //         }
-        //         Kind::Subsurface(subsurface) => {
-        //             subsurface.transform_changed(&new_transform);
-        //         }
-        //     }
-        // }
     }
 
     fn frame(
@@ -419,24 +256,6 @@ impl CompositorHandler for Application {
     ) {
         self.wayland_events
             .push(WaylandEvent::Frame(surface.clone(), time));
-
-        // let surface_id = surface.id();
-        // if let Some(kind) = self.get_by_surface_id_mut(&surface_id) {
-        //     match kind {
-        //         Kind::Window(window) => {
-        //             window.frame(time);
-        //         }
-        //         Kind::LayerSurface(layer_surface) => {
-        //             layer_surface.frame(time);
-        //         }
-        //         Kind::Popup(popup) => {
-        //             popup.frame(time);
-        //         }
-        //         Kind::Subsurface(subsurface) => {
-        //             subsurface.frame(time);
-        //         }
-        //     }
-        // }
     }
 
     fn surface_enter(
@@ -450,23 +269,6 @@ impl CompositorHandler for Application {
             surface.clone(),
             output.clone(),
         ));
-
-        // if let Some(kind) = self.get_by_surface_id_mut(&surface_id) {
-        //     match kind {
-        //         Kind::Window(window) => {
-        //             window.surface_enter(output);
-        //         }
-        //         Kind::LayerSurface(layer_surface) => {
-        //             layer_surface.surface_enter(output);
-        //         }
-        //         Kind::Popup(popup) => {
-        //             popup.surface_enter(output);
-        //         }
-        //         Kind::Subsurface(subsurface) => {
-        //             subsurface.surface_enter(output);
-        //         }
-        //     }
-        // }
     }
 
     fn surface_leave(
@@ -480,23 +282,6 @@ impl CompositorHandler for Application {
             surface.clone(),
             output.clone(),
         ));
-
-        // if let Some(kind) = self.get_by_surface_id_mut(&surface_id) {
-        //     match kind {
-        //         Kind::Window(window) => {
-        //             window.surface_leave(output);
-        //         }
-        //         Kind::LayerSurface(layer_surface) => {
-        //             layer_surface.surface_leave(output);
-        //         }
-        //         Kind::Popup(popup) => {
-        //             popup.surface_leave(output);
-        //         }
-        //         Kind::Subsurface(subsurface) => {
-        //             subsurface.surface_leave(output);
-        //         }
-        //     }
-        // }
     }
 }
 
@@ -517,21 +302,6 @@ impl LayerShellHandler for Application {
     fn closed(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, target_layer: &LayerSurface) {
         self.wayland_events
             .push(WaylandEvent::LayerShellClosed(target_layer.clone()));
-
-        // let index = self
-        //     .layer_surfaces
-        //     .iter()
-        //     .position(|id| id == &surface_id)
-        //     .expect("Layer surface is not added to application");
-
-        // if let Some(kind) = self.get_by_surface_id_mut(&surface_id) {
-        //     if let Kind::LayerSurface(layer_surface) = kind {
-        //         layer_surface.closed();
-        //     }
-        // }
-
-        // // TODO: Should it be removed?
-        // self.layer_surfaces.remove(index);
     }
 
     fn configure(
@@ -546,14 +316,6 @@ impl LayerShellHandler for Application {
             target_layer.clone(),
             configure.clone(),
         ));
-
-        // trace!("[COMMON] XDG layer configure");
-
-        // if let Some(kind) = self.get_by_surface_id_mut(&surface_id) {
-        //     if let Kind::LayerSurface(layer_surface) = kind {
-        //         layer_surface.configure(&configure);
-        //     }
-        // }
     }
 }
 
@@ -571,12 +333,6 @@ impl PopupHandler for Application {
         ));
 
         trace!("[COMMON] XDG popup configure");
-
-        // if let Some(kind) = self.get_by_surface_id_mut(&surface_id) {
-        //     if let Kind::Popup(popup) = kind {
-        //         popup.configure(&config);
-        //     }
-        // }
     }
 
     fn done(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, target_popup: &Popup) {
@@ -584,12 +340,6 @@ impl PopupHandler for Application {
             .push(WaylandEvent::PopupDone(target_popup.clone()));
 
         trace!("[COMMON] XDG popup done");
-
-        // if let Some(kind) = self.get_by_surface_id_mut(&surface_id) {
-        //     if let Kind::Popup(popup) = kind {
-        //         popup.done();
-        //     }
-        // }
     }
 }
 
@@ -598,15 +348,6 @@ impl WindowHandler for Application {
         trace!("[COMMON] XDG window close requested");
         self.wayland_events
             .push(WaylandEvent::WindowRequestClose(target_window.clone()));
-
-        // if let Some(kind) = self.get_by_surface_id_mut(&surface_id) {
-        //     if let Kind::Window(window) = kind {
-        //         window.request_close();
-        //         if window.allowed_to_close() {
-        //             self.remove_window(target_window);
-        //         }
-        //     }
-        // }
     }
 
     fn configure(
@@ -623,12 +364,6 @@ impl WindowHandler for Application {
         ));
 
         trace!("[COMMON] XDG window configure");
-
-        // if let Some(kind) = self.get_by_surface_id_mut(&surface_id) {
-        //     if let Kind::Window(window) = kind {
-        //         window.configure(&configure);
-        //     }
-        // }
     }
 }
 
@@ -655,23 +390,6 @@ impl PointerHandler for Application {
                 event.position,
                 event.kind.clone(),
             )));
-            // let surface_id = event.surface.id();
-            // if let Some(kind) = self.get_by_surface_id_mut(&surface_id) {
-            //     match kind {
-            //         Kind::Window(window) => {
-            //             window.pointer_frame(event);
-            //         }
-            //         Kind::LayerSurface(layer_surface) => {
-            //             layer_surface.pointer_frame(event);
-            //         }
-            //         Kind::Popup(popup) => {
-            //             popup.pointer_frame(event);
-            //         }
-            //         Kind::Subsurface(subsurface) => {
-            //             subsurface.pointer_frame(event);
-            //         }
-            //     }
-            // }
         }
     }
 }
@@ -695,22 +413,6 @@ impl KeyboardHandler for Application {
         ));
 
         self.keyboard_focused_surface = Some(surface.id());
-        // if let Some(kind) = self.get_by_surface_id_mut(&surface_id) {
-        //     match kind {
-        //         Kind::Window(window) => {
-        //             window.enter();
-        //         }
-        //         Kind::LayerSurface(layer_surface) => {
-        //             layer_surface.enter();
-        //         }
-        //         Kind::Popup(popup) => {
-        //             popup.enter();
-        //         }
-        //         Kind::Subsurface(subsurface) => {
-        //             subsurface.enter();
-        //         }
-        //     }
-        // }
     }
 
     fn leave(
@@ -724,24 +426,6 @@ impl KeyboardHandler for Application {
         trace!("[MAIN] Keyboard focus lost");
         self.wayland_events
             .push(WaylandEvent::KeyboardLeave(surface.clone()));
-
-        // if let Some(kind) = self.get_by_surface_id_mut(&surface_id) {
-        //     match kind {
-        //         Kind::Window(window) => {
-        //             window.leave();
-        //         }
-        //         Kind::LayerSurface(layer_surface) => {
-        //             layer_surface.leave();
-        //         }
-        //         Kind::Popup(popup) => {
-        //             popup.leave();
-        //         }
-        //         Kind::Subsurface(subsurface) => {
-        //             subsurface.leave();
-        //         }
-        //     }
-        // }
-        // self.keyboard_focused_surface = None;
     }
 
     fn press_key(
@@ -755,25 +439,6 @@ impl KeyboardHandler for Application {
         trace!("[MAIN] Key pressed: keycode={}", event.raw_code);
         self.wayland_events
             .push(WaylandEvent::KeyPress(event.clone()));
-
-        // if let Some(surface_id) = self.keyboard_focused_surface.clone() {
-        //     if let Some(kind) = self.get_by_surface_id_mut(&surface_id) {
-        //         match kind {
-        //             Kind::Window(window) => {
-        //                 window.press_key(&event);
-        //             }
-        //             Kind::LayerSurface(layer_surface) => {
-        //                 layer_surface.press_key(&event);
-        //             }
-        //             Kind::Popup(popup) => {
-        //                 popup.press_key(&event);
-        //             }
-        //             Kind::Subsurface(subsurface) => {
-        //                 subsurface.press_key(&event);
-        //             }
-        //         }
-        //     }
-        // }
     }
 
     fn release_key(
@@ -787,25 +452,6 @@ impl KeyboardHandler for Application {
         trace!("[MAIN] Key released: keycode={}", event.raw_code);
         self.wayland_events
             .push(WaylandEvent::KeyRelease(event.clone()));
-
-        // if let Some(surface_id) = self.keyboard_focused_surface.clone() {
-        //     if let Some(kind) = self.get_by_surface_id_mut(&surface_id) {
-        //         match kind {
-        //             Kind::Window(window) => {
-        //                 window.release_key(&event);
-        //             }
-        //             Kind::LayerSurface(layer_surface) => {
-        //                 layer_surface.release_key(&event);
-        //             }
-        //             Kind::Popup(popup) => {
-        //                 popup.release_key(&event);
-        //             }
-        //             Kind::Subsurface(subsurface) => {
-        //                 subsurface.release_key(&event);
-        //             }
-        //         }
-        //     }
-        // }
     }
 
     fn update_modifiers(
@@ -820,25 +466,6 @@ impl KeyboardHandler for Application {
     ) {
         self.wayland_events
             .push(WaylandEvent::ModifiersChanged(modifiers.clone()));
-
-        // if let Some(surface_id) = self.keyboard_focused_surface.clone() {
-        //     if let Some(kind) = self.get_by_surface_id_mut(&surface_id) {
-        //         match kind {
-        //             Kind::Window(window) => {
-        //                 window.update_modifiers(&modifiers);
-        //             }
-        //             Kind::LayerSurface(layer_surface) => {
-        //                 layer_surface.update_modifiers(&modifiers);
-        //             }
-        //             Kind::Popup(popup) => {
-        //                 popup.update_modifiers(&modifiers);
-        //             }
-        //             Kind::Subsurface(subsurface) => {
-        //                 subsurface.update_modifiers(&modifiers);
-        //             }
-        //         }
-        //     }
-        // }
     }
 
     fn repeat_key(
@@ -852,25 +479,6 @@ impl KeyboardHandler for Application {
         trace!("[MAIN] Key repeated: keycode={}", event.raw_code);
         self.wayland_events
             .push(WaylandEvent::KeyRepeat(event.clone()));
-
-        // if let Some(surface_id) = self.keyboard_focused_surface.clone() {
-        //     if let Some(kind) = self.get_by_surface_id_mut(&surface_id) {
-        //         match kind {
-        //             Kind::Window(window) => {
-        //                 window.repeat_key(&event);
-        //             }
-        //             Kind::LayerSurface(layer_surface) => {
-        //                 layer_surface.repeat_key(&event);
-        //             }
-        //             Kind::Popup(popup) => {
-        //                 popup.repeat_key(&event);
-        //             }
-        //             Kind::Subsurface(subsurface) => {
-        //                 subsurface.repeat_key(&event);
-        //             }
-        //         }
-        //     }
-        // }
     }
 }
 
