@@ -119,12 +119,20 @@ async fn main() {
     let mut event_queue = app.event_queue.take().unwrap();
     loop {
         select! {
-            // Wait for Wayland events in a blocking task, then dispatch them
+            // Wait for Wayland events, ideally I would like to figure out how to do this in a separate thread loop, because now it opens a lot of spawn_blocking threads
             _ = spawn_blocking({
+                // Dispatch pending events and flush before blocking on read
+                let _ = event_queue.dispatch_pending(&mut app);
+                let _ = app.conn.flush();
                 let conn = app.conn.clone();
                 move || {
+                    // This function execution can take sometimes seconds (if no events are coming)
                     if let Some(guard) = conn.prepare_read() {
                         guard.read_without_dispatch().unwrap();
+                    } else {
+                        // Goal is that this branch is never hit, it might hit on the first iteration though
+
+                        println!("♦️ Failed to read");
                     }
                 }
             }) => {
