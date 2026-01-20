@@ -640,8 +640,6 @@ impl PointerHandler for Application {
         pointer: &WlPointer,
         events: &[PointerEvent],
     ) {
-        trace!("[MAIN] Pointer frame with {} events", events.len());
-
         for event in events {
             match event.kind {
                 // Changing cursor shape requires last enter serial number, we are storing it here
