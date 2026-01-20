@@ -122,16 +122,19 @@ async fn main() {
             // Wait for Wayland events, ideally I would like to figure out how to do this in a separate thread loop, because now it opens a lot of spawn_blocking threads
             _ = spawn_blocking({
                 // Dispatch pending events and flush before blocking on read
-                let _ = event_queue.dispatch_pending(&mut app);
-                let _ = app.conn.flush();
+                let count = event_queue.dispatch_pending(&mut app).unwrap();
                 let conn = app.conn.clone();
                 move || {
+                    // See `EventQueue::blocking_dispatch` implementation
+                    if count > 0 {
+                        return;
+                    }
+                    conn.flush().unwrap();
                     // This function execution can take sometimes seconds (if no events are coming)
                     if let Some(guard) = conn.prepare_read() {
                         guard.read_without_dispatch().unwrap();
                     } else {
                         // Goal is that this branch is never hit, it might hit on the first iteration though
-
                         println!("♦️ Failed to read");
                     }
                 }
