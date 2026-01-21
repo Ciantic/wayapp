@@ -17,7 +17,7 @@ wayland-protocols = "0.32.10"
 wayland-protocols-wlr = "0.3.10"
 
 # Used only by egui/wgpu backend
-pollster = "0.4.0"
+futures = "0.3.0"
 egui = "0.33.3"
 egui-wgpu = "0.33.3"
 raw-window-handle = "0.6.2"

@@ -24,7 +24,6 @@ use egui_wgpu::RendererOptions;
 use egui_wgpu::ScreenDescriptor;
 use egui_wgpu::wgpu;
 use log::trace;
-use pollster::block_on;
 use raw_window_handle::RawDisplayHandle;
 use raw_window_handle::RawWindowHandle;
 use raw_window_handle::WaylandDisplayHandle;
@@ -102,17 +101,19 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
                 .expect("Failed to create WGPU surface")
         };
 
-        let adapter = block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            compatible_surface: Some(&surface),
-            ..Default::default()
-        }))
-        .expect("Failed to find a suitable adapter");
+        let adapter =
+            futures::executor::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                compatible_surface: Some(&surface),
+                ..Default::default()
+            }))
+            .expect("Failed to find a suitable adapter");
 
-        let (device, queue) = block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            memory_hints: wgpu::MemoryHints::MemoryUsage,
-            ..Default::default()
-        }))
-        .expect("Failed to request WGPU device");
+        let (device, queue) =
+            futures::executor::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+                memory_hints: wgpu::MemoryHints::MemoryUsage,
+                ..Default::default()
+            }))
+            .expect("Failed to request WGPU device");
 
         let caps = surface.get_capabilities(&adapter);
         let output_format = *caps

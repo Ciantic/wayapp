@@ -51,6 +51,7 @@ use smithay_client_toolkit::shm::ShmHandler;
 use smithay_client_toolkit::subcompositor::SubcompositorState;
 use smithay_clipboard::Clipboard;
 use std::collections::HashMap;
+use std::thread::JoinHandle;
 use wayland_backend::client::ObjectId;
 use wayland_client::Connection;
 use wayland_client::Dispatch;
@@ -191,16 +192,6 @@ impl Application {
         self.wayland_events.drain(..).collect()
     }
 
-    pub fn run_blocking(&mut self) {
-        // Run the Wayland event loop. This example will run until the process is killed
-        let mut event_queue = self.event_queue.take().unwrap();
-        loop {
-            event_queue
-                .blocking_dispatch(self)
-                .expect("Wayland dispatch failed");
-        }
-    }
-
     pub fn set_cursor(&mut self, shape: Shape) {
         if let Some(serial) = self.last_pointer_enter_serial
             && let Some(pointer) = &self.last_pointer
@@ -218,6 +209,96 @@ impl Application {
                         .get_shape_device(pointer, &self.qh)
                 });
             device.set_shape(serial, shape);
+        }
+    }
+
+    /// Blocking way to run the Wayland event loop
+    ///
+    /// For tokio or other async uses see `run_lock_thread` method.
+    ///
+    /// This may panic if the event queue has already been taken.
+    pub fn run_blocking(&mut self) {
+        // Run the Wayland event loop. This example will run until the process is killed
+        let mut event_queue = self.event_queue.take().expect("Event queue already used");
+        loop {
+            event_queue
+                .blocking_dispatch(self)
+                .expect("Wayland dispatch failed");
+        }
+    }
+
+    /// Asynchronous way to run the Wayland event loop
+    ///
+    /// Connection reading happens blockingly in separate thread, but
+    /// dispatching is done by the user via `AsyncDispatcher::dispatch_pending`
+    ///
+    /// See egui_tokio_async.rs example for usage.
+    ///
+    /// This may panic if the event queue has already been taken.
+    pub fn run_lock_thread(&mut self, dispatch_fn: impl Fn() + Send + 'static) -> AsyncDispatcher {
+        let conn = self.conn.clone();
+        let (count_sender, count_reader) = std::sync::mpsc::channel::<Option<usize>>();
+        let event_queue = self.event_queue.take().expect("Event queue already used");
+        AsyncDispatcher {
+            event_queue,
+            count_sender,
+            lock_thread: Some(std::thread::spawn(move || {
+                // Initial trigger
+                dispatch_fn();
+                loop {
+                    // See `EventQueue::blocking_dispatch` implementation
+                    if let Some(count) = count_reader.recv().unwrap() {
+                        if count > 0 {
+                            dispatch_fn();
+                            continue;
+                        }
+                    } else {
+                        break;
+                    }
+                    conn.flush().unwrap();
+
+                    // This function execution can take sometimes seconds (if no events are coming)
+                    if let Some(guard) = conn.prepare_read() {
+                        guard.read_without_dispatch().unwrap();
+                    } else {
+                        // Goal is that this branch is never or very seldomly hit
+                        #[cfg(debug_assertions)]
+                        println!("♦️♦️♦️♦️♦️ Failed to read");
+                    }
+                    dispatch_fn();
+                }
+            })),
+        }
+    }
+}
+
+pub struct AsyncDispatcher {
+    event_queue: EventQueue<Application>,
+    count_sender: std::sync::mpsc::Sender<Option<usize>>,
+    #[allow(dead_code)]
+    lock_thread: Option<JoinHandle<()>>,
+}
+
+impl AsyncDispatcher {
+    pub fn dispatch_pending(&mut self, app: &mut Application) -> Vec<WaylandEvent> {
+        let count = self
+            .event_queue
+            .dispatch_pending(app)
+            .expect("Wayland dispatch failed");
+        let _ = self.count_sender.send(Some(count));
+        app.take_wayland_events()
+    }
+}
+
+impl Drop for AsyncDispatcher {
+    fn drop(&mut self) {
+        // Terminate the lock thread, this doesn't work properly because it is
+        // more likely that the locking thread is stuck at prepare_read or
+        // read_without_dispatch, then the signaling here won't be received until those
+        // calls return.
+        self.count_sender.send(None).unwrap();
+        if let Some(thread) = self.lock_thread.take() {
+            let _ = thread.join();
         }
     }
 }

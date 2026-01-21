@@ -104,8 +104,8 @@ async fn main() {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AppEvent>();
 
     spawn_ticking_thread(tx.clone());
-    let count_sender = spawn_wayland_lock_loop(tx.clone(), app.conn.clone());
-    let mut event_queue = app.event_queue.take().unwrap();
+
+    let mut dispatcher = app.run_lock_thread(move || tx.send(AppEvent::WaylandDispatch).unwrap());
     loop {
         if let Some(event) = rx.recv().await {
             match event {
@@ -117,11 +117,9 @@ async fn main() {
                     );
                 }
                 AppEvent::WaylandDispatch => {
-                    let count = event_queue.dispatch_pending(&mut app).unwrap();
-                    let events = app.take_wayland_events();
+                    let events = dispatcher.dispatch_pending(&mut app);
                     example_window_app.handle_events(&mut app, &events, &mut |ctx| myapp1.ui(ctx));
                     layer_surface_app.handle_events(&mut app, &events, &mut |ctx| myapp2.ui(ctx));
-                    let _ = count_sender.send(count);
                 }
             }
         }
@@ -142,32 +140,4 @@ fn spawn_ticking_thread(sender: UnboundedSender<AppEvent>) {
             let _ = sender.send(AppEvent::TimerTick(tick));
         }
     });
-}
-
-fn spawn_wayland_lock_loop(sender: UnboundedSender<AppEvent>, conn: Connection) -> Sender<usize> {
-    // Initial trigger
-    sender.send(AppEvent::WaylandDispatch).unwrap();
-
-    let (count_sender, count_reader) = std::sync::mpsc::channel::<usize>();
-    std::thread::spawn(move || {
-        loop {
-            // See `EventQueue::blocking_dispatch` implementation
-            let count = count_reader.recv().unwrap();
-            if count > 0 {
-                let _ = sender.send(AppEvent::WaylandDispatch);
-                continue;
-            }
-            conn.flush().unwrap();
-
-            // This function execution can take sometimes seconds (if no events are coming)
-            if let Some(guard) = conn.prepare_read() {
-                guard.read_without_dispatch().unwrap();
-            } else {
-                // Goal is that this branch is never or very seldomly hit
-                println!("♦️♦️♦️♦️♦️ Failed to read");
-            }
-            let _ = sender.send(AppEvent::WaylandDispatch);
-        }
-    });
-    count_sender
 }

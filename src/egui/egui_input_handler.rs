@@ -20,7 +20,6 @@ use egui_wgpu::RendererOptions;
 use egui_wgpu::ScreenDescriptor;
 use egui_wgpu::wgpu;
 use log::trace;
-use pollster::block_on;
 use raw_window_handle::RawDisplayHandle;
 use raw_window_handle::RawWindowHandle;
 use raw_window_handle::WaylandDisplayHandle;
