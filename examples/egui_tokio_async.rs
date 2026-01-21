@@ -5,10 +5,8 @@ use smithay_client_toolkit::shell::wlr_layer::Anchor;
 use smithay_client_toolkit::shell::wlr_layer::KeyboardInteractivity;
 use smithay_client_toolkit::shell::wlr_layer::Layer;
 use smithay_client_toolkit::shell::xdg::window::WindowDecorations;
-use std::sync::mpsc::Sender;
 use tokio::sync::mpsc::UnboundedSender;
 use wayapp::*;
-use wayland_client::Connection;
 
 struct EguiApp {
     counter: i32,
