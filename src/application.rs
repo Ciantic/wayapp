@@ -214,7 +214,7 @@ impl Application {
 
     /// Blocking way to run the Wayland event loop
     ///
-    /// For tokio or other async uses see `run_reading_thread` method.
+    /// For tokio or other async uses see `run_reader` method.
     ///
     /// This may panic if the event queue has already been taken.
     pub fn run_blocking(&mut self) {
@@ -235,10 +235,7 @@ impl Application {
     /// See egui_tokio_async.rs example for usage.
     ///
     /// This may panic if the event queue has already been taken.
-    pub fn run_reading_thread(
-        &mut self,
-        dispatch_fn: impl Fn() + Send + 'static,
-    ) -> AsyncDispatcher {
+    pub fn run_reader(&mut self, dispatch_fn: impl Fn() + Send + 'static) -> AsyncDispatcher {
         let conn = self.conn.clone();
         let (count_sender, count_reader) = std::sync::mpsc::channel::<Option<usize>>();
         let event_queue = self.event_queue.take().expect("Event queue already used");

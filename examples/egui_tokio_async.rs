@@ -103,8 +103,7 @@ async fn main() {
 
     spawn_ticking_thread(tx.clone());
 
-    let mut dispatcher =
-        app.run_reading_thread(move || tx.send(AppEvent::WaylandDispatch).unwrap());
+    let mut dispatcher = app.run_reader(move || tx.send(AppEvent::WaylandDispatch).unwrap());
     loop {
         if let Some(event) = rx.recv().await {
             match event {
