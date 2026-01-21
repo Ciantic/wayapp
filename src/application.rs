@@ -247,7 +247,7 @@ impl Application {
                 dispatch_fn();
                 loop {
                     // See `EventQueue::blocking_dispatch` implementation
-                    if let Some(count) = count_reader.recv().unwrap() {
+                    if let Ok(Some(count)) = count_reader.recv() {
                         if count > 0 {
                             dispatch_fn();
                             continue;
@@ -259,7 +259,12 @@ impl Application {
 
                     // This function execution can take sometimes seconds (if no events are coming)
                     if let Some(guard) = conn.prepare_read() {
-                        guard.read_without_dispatch().unwrap();
+                        if let Err(err) = guard.read_without_dispatch() {
+                            log::error!(
+                                "Async Dispatcher encountered wayland read error: {:?}",
+                                err
+                            );
+                        }
                     } else {
                         // Goal is that this branch is never or very seldomly hit
                         #[cfg(feature = "_example")]
