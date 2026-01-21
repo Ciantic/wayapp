@@ -38,3 +38,10 @@ hotpath = { version = "0.9", features = ["hotpath", "hotpath-alloc"] }
 [lib]
 name = "wayapp"
 path = "src/lib.rs"
+
+[features]
+_example = []
+
+[[example]]
+name = "egui_tokio_async"
+required-features = ["_example"]

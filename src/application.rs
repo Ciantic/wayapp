@@ -262,7 +262,7 @@ impl Application {
                         guard.read_without_dispatch().unwrap();
                     } else {
                         // Goal is that this branch is never or very seldomly hit
-                        #[cfg(debug_assertions)]
+                        #[cfg(feature = "_example")]
                         println!("♦️♦️♦️♦️♦️ Failed to read");
                     }
                     dispatch_fn();
