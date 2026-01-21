@@ -290,18 +290,19 @@ impl AsyncDispatcher {
     }
 }
 
-impl Drop for AsyncDispatcher {
-    fn drop(&mut self) {
-        // Terminate the lock thread, this doesn't work properly because it is
-        // more likely that the locking thread is stuck at prepare_read or
-        // read_without_dispatch, then the signaling here won't be received until those
-        // calls return.
-        self.count_sender.send(None).unwrap();
-        if let Some(thread) = self.lock_thread.take() {
-            let _ = thread.join();
-        }
-    }
-}
+// This doesn't work properly because it is
+// more likely that the locking thread is stuck at prepare_read or
+// read_without_dispatch, then the signaling here won't be received until those
+// calls return.
+// impl Drop for AsyncDispatcher {
+//     fn drop(&mut self) {
+//         // Terminate the lock thread
+//         self.count_sender.send(None).unwrap();
+//         if let Some(thread) = self.lock_thread.take() {
+//             let _ = thread.join();
+//         }
+//     }
+// }
 
 impl CompositorHandler for Application {
     fn scale_factor_changed(
