@@ -53,6 +53,7 @@ use smithay_clipboard::Clipboard;
 use std::collections::HashMap;
 use std::thread::JoinHandle;
 use wayland_backend::client::ObjectId;
+use wayland_backend::client::WaylandError;
 use wayland_client::Connection;
 use wayland_client::Dispatch;
 use wayland_client::EventQueue;
@@ -235,60 +236,120 @@ impl Application {
     /// See egui_tokio_async.rs example for usage.
     ///
     /// This may panic if the event queue has already been taken.
-    pub fn run_dispatcher(&mut self, dispatch_fn: impl Fn() + Send + 'static) -> AsyncDispatcher {
-        let conn = self.conn.clone();
-        let (count_sender, count_reader) = std::sync::mpsc::channel::<Option<usize>>();
+    pub fn run_dispatcher<T: Fn() + Send + 'static>(
+        &mut self,
+        dispatch_fn: T,
+    ) -> AsyncReader<T> {
         let event_queue = self.event_queue.take().expect("Event queue already used");
-        AsyncDispatcher {
-            event_queue,
-            count_sender,
-            lock_thread: Some(std::thread::spawn(move || {
-                // Initial trigger
-                dispatch_fn();
-                loop {
-                    match count_reader.recv() {
-                        Ok(Some(count)) => {
-                            if count > 0 {
-                                dispatch_fn();
-                                continue;
-                            }
-                        }
-                        Ok(None) => break,
-                        Err(_) => {
-                            // Likely user exited the app
-                            break;
-                        }
-                    }
-                    conn.flush().unwrap();
-
-                    // This function execution can take sometimes seconds (if no events are coming)
-                    if let Some(guard) = conn.prepare_read() {
-                        if let Err(err) = guard.read_without_dispatch() {
-                            log::error!(
-                                "Async Dispatcher encountered wayland read error: {:?}",
-                                err
-                            );
-                        }
-                    } else {
-                        // Goal is that this branch is never or very seldomly hit
-                        #[cfg(feature = "_example")]
-                        println!("♦️♦️♦️♦️♦️ Failed to read");
-                    }
-                    dispatch_fn();
-                }
-            })),
-        }
+        let mut dispatcher = AsyncReader::new(self.conn.clone(), event_queue, dispatch_fn);
+        dispatcher.start_thread();
+        dispatcher
     }
 }
 
-pub struct AsyncDispatcher {
-    event_queue: EventQueue<Application>,
-    count_sender: std::sync::mpsc::Sender<Option<usize>>,
-    #[allow(dead_code)]
-    lock_thread: Option<JoinHandle<()>>,
+enum AsyncReaderError {
+    RecvError(std::sync::mpsc::RecvError),
+    WaylandError(WaylandError),
+}
+impl From<std::sync::mpsc::RecvError> for AsyncReaderError {
+    fn from(e: std::sync::mpsc::RecvError) -> Self {
+        AsyncReaderError::RecvError(e)
+    }
+}
+impl From<WaylandError> for AsyncReaderError {
+    fn from(e: WaylandError) -> Self {
+        AsyncReaderError::WaylandError(e)
+    }
 }
 
-impl AsyncDispatcher {
+pub struct AsyncReader<T: Fn() + Send + 'static> {
+    conn: Option<Connection>,
+    event_queue: EventQueue<Application>,
+    count_reader: Option<std::sync::mpsc::Receiver<Option<usize>>>,
+    count_sender: std::sync::mpsc::Sender<Option<usize>>,
+    dispatch_fn: Option<T>,
+    #[allow(dead_code)]
+    reader_thread: Option<JoinHandle<()>>,
+}
+
+impl<T: Fn() + Send + 'static> AsyncReader<T> {
+    fn new(conn: Connection, event_queue: EventQueue<Application>, dispatch_fn: T) -> Self {
+        let (count_sender, count_reader) = std::sync::mpsc::channel::<Option<usize>>();
+        AsyncReader {
+            conn: Some(conn),
+            event_queue,
+            count_sender,
+            count_reader: Some(count_reader),
+            dispatch_fn: Some(dispatch_fn),
+            reader_thread: None,
+        }
+    }
+
+    /// Start the blocking reading thread
+    pub(crate) fn start_thread(&mut self) {
+        let count_reader = self.count_reader.take().expect("Count reader missing");
+        let dispatch_fn = self.dispatch_fn.take().expect("Dispatch function missing");
+        let conn = self.conn.take().expect("Connection missing");
+
+        self.reader_thread = Some(std::thread::spawn(move || {
+            // Initial trigger dispatching
+            (dispatch_fn)();
+
+            loop {
+                match AsyncReader::read_blocking(&conn, &dispatch_fn, &count_reader) {
+                    Ok(cont) => {
+                        if !cont {
+                            break;
+                        }
+                    }
+                    Err(AsyncReaderError::RecvError(_)) => {
+                        // Sender dropped, exit thread
+                        break;
+                    }
+                    Err(AsyncReaderError::WaylandError(e)) => {
+                        eprintln!("Error in Wayland reader thread: {:?}", e);
+                        break;
+                    }
+                }
+            }
+        }));
+    }
+
+    /// Reads the wayland connection blockingly, and calls the user defined
+    /// dispatch function
+    #[inline]
+    fn read_blocking(
+        conn: &Connection,
+        dispatch_fn: &T,
+        count_reader: &std::sync::mpsc::Receiver<Option<usize>>,
+    ) -> Result<bool, AsyncReaderError> {
+        // Implementation follows `EventQueue::blocking_dispatch` logic
+        match count_reader.recv()? {
+            Some(count) => {
+                if count > 0 {
+                    (dispatch_fn)();
+                    return Ok(true);
+                }
+            }
+            None => return Ok(false),
+        }
+
+        conn.flush()?;
+
+        // This function execution can take sometimes seconds (if no events are coming)
+        if let Some(guard) = conn.prepare_read() {
+            guard.read_without_dispatch()?;
+        } else {
+            // Goal is that this branch is never or very seldomly hit
+            #[cfg(feature = "_example")]
+            println!("♦️♦️♦️♦️♦️ Failed to read");
+        }
+
+        (dispatch_fn)();
+        Ok(true) // Continue
+    }
+
+    /// Dispatch pending events, and return collected Wayland events
     pub fn dispatch_pending(&mut self, app: &mut Application) -> Vec<WaylandEvent> {
         let count = self
             .event_queue
