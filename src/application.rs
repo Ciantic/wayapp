@@ -246,14 +246,18 @@ impl Application {
                 // Initial trigger
                 dispatch_fn();
                 loop {
-                    // See `EventQueue::blocking_dispatch` implementation
-                    if let Ok(Some(count)) = count_reader.recv() {
-                        if count > 0 {
-                            dispatch_fn();
-                            continue;
+                    match count_reader.recv() {
+                        Ok(Some(count)) => {
+                            if count > 0 {
+                                dispatch_fn();
+                                continue;
+                            }
                         }
-                    } else {
-                        break;
+                        Ok(None) => break,
+                        Err(_) => {
+                            // Likely user exited the app
+                            break;
+                        }
                     }
                     conn.flush().unwrap();
 
