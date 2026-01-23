@@ -5,7 +5,8 @@
 
 use crate::Application;
 use crate::EguiWgpuRenderer;
-// use crate::EguiWgpuRendererThread;
+#[allow(unused_imports)]
+use crate::EguiWgpuRendererThread;
 use crate::Kind;
 use crate::WaylandEvent;
 use crate::WaylandToEguiInput;
@@ -31,7 +32,8 @@ pub struct EguiSurfaceState<T: Into<Kind> + Clone> {
     viewport: Option<WpViewport>,
     t: T,
     kind: Kind,
-    renderer: EguiWgpuRenderer,
+    // renderer: EguiWgpuRendererThread, // for async rendering thread
+    renderer: EguiWgpuRenderer, // for direct rendering (sync)
     input_state: WaylandToEguiInput,
     init_width: u32,
     init_height: u32,
@@ -48,7 +50,8 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
     pub fn new(app: &Application, t: T, width: u32, height: u32) -> Self {
         let kind = t.clone().into();
         let wl_surface = kind.get_wl_surface();
-        let renderer = EguiWgpuRenderer::new(wl_surface, &app.qh, &app.conn);
+        let egui_context = Context::default();
+        let renderer = EguiWgpuRenderer::new(&egui_context, wl_surface, &app.qh, &app.conn);
         let clipboard = unsafe { Clipboard::new(app.conn.display().id().as_ptr() as *mut _) };
         let input_state = WaylandToEguiInput::new(clipboard);
 
@@ -66,7 +69,7 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
             last_full_output: None,
             last_buffer_update: None,
             has_keyboard_focus: false,
-            egui_context: Context::default(),
+            egui_context,
         }
     }
 
@@ -213,13 +216,8 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
         let height = self.height.saturating_mul(self.physical_scale());
         let pixels_per_point = self.physical_scale() as f32;
 
-        self.renderer.render_to_wgpu(
-            last_full_output,
-            &self.egui_context,
-            width,
-            height,
-            pixels_per_point,
-        );
+        self.renderer
+            .render_to_wgpu(last_full_output, width, height, pixels_per_point);
     }
 
     /// Full render of EGUI frame (layout, input + GPU rendering)

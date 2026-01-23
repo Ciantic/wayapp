@@ -21,6 +21,7 @@ use wayland_client::protocol::wl_surface::WlSurface;
 
 pub struct EguiWgpuRenderer {
     wl_surface: WlSurface,
+    egui_context: Context,
     qh: wayland_client::QueueHandle<crate::Application>,
     renderer: Renderer,
     surface: Surface<'static>,
@@ -35,6 +36,7 @@ pub struct EguiWgpuRenderer {
 
 impl EguiWgpuRenderer {
     pub fn new(
+        egui_context: &Context,
         wl_surface: &WlSurface,
         qh: &QueueHandle<crate::Application>,
         conn: &Connection,
@@ -103,6 +105,7 @@ impl EguiWgpuRenderer {
             conn: conn.clone(),
             width: 0,
             height: 0,
+            egui_context: egui_context.clone(),
         }
     }
 
@@ -130,7 +133,6 @@ impl EguiWgpuRenderer {
     pub fn render_to_wgpu(
         &mut self,
         egui_fulloutput: egui::FullOutput,
-        egui_context: &Context,
         width: u32,
         height: u32,
         pixels_per_point: f32,
@@ -182,8 +184,9 @@ impl EguiWgpuRenderer {
         };
 
         // Draw EGUI shapes with WGPU
-        let tris =
-            egui_context.tessellate(egui_fulloutput.shapes, egui_fulloutput.pixels_per_point);
+        let tris = self
+            .egui_context
+            .tessellate(egui_fulloutput.shapes, egui_fulloutput.pixels_per_point);
         for (id, image_delta) in &egui_fulloutput.textures_delta.set {
             self.renderer
                 .update_texture(&self.device, &self.queue, *id, image_delta);
