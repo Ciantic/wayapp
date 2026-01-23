@@ -80,6 +80,7 @@ impl EguiWgpuRenderer {
         }
     }
 
+    /// Resize and reconfigure the WGPU surface
     pub fn reconfigure_surface(&mut self, width: u32, height: u32) {
         let width = width.max(1);
         let height = height.max(1);
@@ -97,8 +98,7 @@ impl EguiWgpuRenderer {
         self.surface_config = Some(config);
     }
 
-    /// Render the last processed frame to WGPU
-    /// Call end_frame() before this
+    /// Renders EGUI output to the WGPU surface
     pub fn render_to_wgpu(
         &mut self,
         egui_fulloutput: egui::FullOutput,
