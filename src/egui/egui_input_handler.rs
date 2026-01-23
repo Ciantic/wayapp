@@ -3,47 +3,21 @@
 //! This module provides a ViewManager-based approach to handling EGUI surfaces
 //! following the pattern from single_color.rs
 
-#![allow(dead_code)]
-
-use crate::Application;
-use crate::WaylandEvent;
 use egui::Event;
 use egui::Key;
 use egui::Modifiers as EguiModifiers;
-use egui::PlatformOutput;
 use egui::PointerButton;
 use egui::Pos2;
 use egui::RawInput;
-use egui::ahash::HashMap;
-use egui_wgpu::Renderer;
-use egui_wgpu::RendererOptions;
-use egui_wgpu::ScreenDescriptor;
-use egui_wgpu::wgpu;
 use log::trace;
-use raw_window_handle::RawDisplayHandle;
-use raw_window_handle::RawWindowHandle;
-use raw_window_handle::WaylandDisplayHandle;
-use raw_window_handle::WaylandWindowHandle;
 use smithay_client_toolkit::seat::keyboard::KeyEvent;
 use smithay_client_toolkit::seat::keyboard::Keysym;
 use smithay_client_toolkit::seat::keyboard::Modifiers as WaylandModifiers;
 use smithay_client_toolkit::seat::pointer::PointerEvent;
 use smithay_client_toolkit::seat::pointer::PointerEventKind;
-use smithay_client_toolkit::shell::WaylandSurface;
-use smithay_client_toolkit::shell::wlr_layer::LayerSurface;
-use smithay_client_toolkit::shell::xdg::popup::Popup;
-use smithay_client_toolkit::shell::xdg::window::Window;
 use smithay_clipboard::Clipboard;
-use std::num::NonZero;
-use std::ptr::NonNull;
-use std::time::Duration;
 use std::time::Instant;
-use wayland_backend::client::ObjectId;
-use wayland_client::Proxy;
-use wayland_client::QueueHandle;
-use wayland_client::protocol::wl_surface::WlSurface;
 use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::Shape;
-use wayland_protocols::wp::viewporter::client::wp_viewport::WpViewport;
 
 /// Handles input events from Wayland and converts them to EGUI RawInput
 pub struct WaylandToEguiInput {

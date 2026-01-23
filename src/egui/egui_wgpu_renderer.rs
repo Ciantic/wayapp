@@ -1,22 +1,14 @@
-// Original for Winit:
-// https://github.com/kaphula/winit-egui-wgpu-template/blob/master/src/egui_tools.rs
-//
-// MIT License
-// Copyright (c) 2024 Valtteri Vallius
-
 use egui::Context;
 use egui_wgpu::Renderer;
 use egui_wgpu::RendererOptions;
 use egui_wgpu::ScreenDescriptor;
 use egui_wgpu::wgpu;
-use egui_wgpu::wgpu::CommandEncoder;
 use egui_wgpu::wgpu::Device;
 use egui_wgpu::wgpu::Queue;
 use egui_wgpu::wgpu::StoreOp;
 use egui_wgpu::wgpu::Surface;
 use egui_wgpu::wgpu::SurfaceConfiguration;
 use egui_wgpu::wgpu::TextureFormat;
-use egui_wgpu::wgpu::TextureView;
 use raw_window_handle::RawDisplayHandle;
 use raw_window_handle::RawWindowHandle;
 
