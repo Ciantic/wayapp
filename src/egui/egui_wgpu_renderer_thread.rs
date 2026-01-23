@@ -45,27 +45,17 @@ impl EguiWgpuRendererThread {
         let qh_ = qh.clone();
         let conn_ = conn.clone();
         let thread = std::thread::spawn(move || {
-            let mut configured_width = 0 as u32;
-            let mut configured_height = 0 as u32;
             let mut renderer = EguiWgpuRenderer::new(&wl_surface_, &qh_, &conn_);
 
             loop {
                 // Block until next command arrives
                 if let Ok(command) = rx.recv() {
-                    println!("EguiWgpuRendererThread: Received command {:?}", command);
                     match command {
                         EguiWgpuRendererThreadCommand::Render => {
                             // Render if we have render input available
                             if let Ok(mut input_opt) = render_input_.lock() {
                                 if let Some(input) = input_opt.take() {
                                     drop(input_opt);
-                                    if configured_height != input.height
-                                        || configured_width != input.width
-                                    {
-                                        configured_height = input.height;
-                                        configured_width = input.width;
-                                        renderer.reconfigure_surface(input.width, input.height);
-                                    }
                                     renderer.render_to_wgpu(
                                         input.egui_fulloutput,
                                         &input.egui_context,
@@ -77,16 +67,10 @@ impl EguiWgpuRendererThread {
                             }
                         }
                         EguiWgpuRendererThreadCommand::ReconfigureSurface { width, height } => {
-                            if configured_height == height && configured_width == width {
-                                continue;
-                            }
-                            configured_height = height;
-                            configured_width = width;
                             renderer.reconfigure_surface(width, height);
                         }
                         EguiWgpuRendererThreadCommand::RequestFrame => {
-                            wl_surface_.frame(&qh_, wl_surface_.clone());
-                            wl_surface_.commit();
+                            renderer.request_frame();
                         }
                     }
                 }

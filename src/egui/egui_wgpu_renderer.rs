@@ -28,6 +28,9 @@ pub struct EguiWgpuRenderer {
     queue: Queue,
     surface_config: Option<SurfaceConfiguration>,
     output_format: TextureFormat,
+    conn: Connection,
+    width: u32,
+    height: u32,
 }
 
 impl EguiWgpuRenderer {
@@ -97,6 +100,9 @@ impl EguiWgpuRenderer {
             output_format,
             qh: qh.clone(),
             wl_surface: wl_surface.clone(),
+            conn: conn.clone(),
+            width: 0,
+            height: 0,
         }
     }
 
@@ -104,6 +110,8 @@ impl EguiWgpuRenderer {
     pub fn reconfigure_surface(&mut self, width: u32, height: u32) {
         let width = width.max(1);
         let height = height.max(1);
+        self.width = width;
+        self.height = height;
         let config = SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: self.output_format,
@@ -127,6 +135,15 @@ impl EguiWgpuRenderer {
         height: u32,
         pixels_per_point: f32,
     ) {
+        if (width != self.width) || (height != self.height) {
+            println!(
+                "Unexpected size change in EguiWgpuRenderer::render_to_wgpu, reconfiguring \
+                 surface from {}x{} to {}x{}",
+                self.width, self.height, width, height
+            );
+            self.reconfigure_surface(width, height);
+        }
+
         let surface_texture = match self.surface.get_current_texture() {
             Ok(texture) => texture,
             Err(e) => {
@@ -207,5 +224,6 @@ impl EguiWgpuRenderer {
     pub fn request_frame(&mut self) {
         self.wl_surface.frame(&self.qh, self.wl_surface.clone());
         self.wl_surface.commit();
+        self.conn.flush().unwrap();
     }
 }

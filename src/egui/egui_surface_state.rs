@@ -291,7 +291,6 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
                 WaylandEvent::ScaleFactorChanged(_, factor) => {
                     self.scale_factor_changed(*factor);
                     self.request_frame();
-                    let _ = app.conn.flush();
                 }
                 WaylandEvent::PointerEvent((surface, position, event_kind)) => {
                     self.handle_pointer_event(&PointerEvent {
@@ -300,45 +299,38 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
                         kind: event_kind.clone(),
                     });
                     self.request_frame();
-                    let _ = app.conn.flush();
                 }
                 WaylandEvent::KeyboardEnter(_, _serials, _keysyms) => {
                     self.handle_keyboard_enter();
                     self.has_keyboard_focus = true;
                     self.request_frame();
-                    let _ = app.conn.flush();
                 }
                 WaylandEvent::KeyboardLeave(_) => {
                     self.handle_keyboard_leave();
                     self.has_keyboard_focus = false;
                     self.request_frame();
-                    let _ = app.conn.flush();
                 }
                 WaylandEvent::KeyPress(key_event) => {
                     if self.has_keyboard_focus {
                         self.handle_keyboard_event(key_event, true, false);
                         self.request_frame();
-                        let _ = app.conn.flush();
                     }
                 }
                 WaylandEvent::KeyRelease(key_event) => {
                     if self.has_keyboard_focus {
                         self.handle_keyboard_event(key_event, false, false);
                         self.request_frame();
-                        let _ = app.conn.flush();
                     }
                 }
                 WaylandEvent::KeyRepeat(key_event) => {
                     if self.has_keyboard_focus {
                         self.handle_keyboard_event(key_event, true, true);
                         self.request_frame();
-                        let _ = app.conn.flush();
                     }
                 }
                 WaylandEvent::ModifiersChanged(modifiers) => {
                     self.update_modifiers(modifiers);
                     self.request_frame();
-                    let _ = app.conn.flush();
                 }
                 _ => {}
             }
