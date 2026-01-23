@@ -16,9 +16,12 @@ use raw_window_handle::WaylandWindowHandle;
 use std::ptr::NonNull;
 use wayland_client::Connection;
 use wayland_client::Proxy;
+use wayland_client::QueueHandle;
 use wayland_client::protocol::wl_surface::WlSurface;
 
 pub struct EguiWgpuRenderer {
+    wl_surface: WlSurface,
+    qh: wayland_client::QueueHandle<crate::Application>,
     renderer: Renderer,
     surface: Surface<'static>,
     device: Device,
@@ -28,7 +31,11 @@ pub struct EguiWgpuRenderer {
 }
 
 impl EguiWgpuRenderer {
-    pub fn new(wl_surface: &WlSurface, conn: &Connection) -> EguiWgpuRenderer {
+    pub fn new(
+        wl_surface: &WlSurface,
+        qh: &QueueHandle<crate::Application>,
+        conn: &Connection,
+    ) -> EguiWgpuRenderer {
         let raw_display_handle = RawDisplayHandle::Wayland(WaylandDisplayHandle::new(
             NonNull::new(conn.backend().display_ptr() as *mut _)
                 .expect("Wayland display pointer was null"),
@@ -88,6 +95,8 @@ impl EguiWgpuRenderer {
             queue,
             surface_config: None,
             output_format,
+            qh: qh.clone(),
+            wl_surface: wl_surface.clone(),
         }
     }
 
@@ -156,7 +165,8 @@ impl EguiWgpuRenderer {
         };
 
         // Draw EGUI shapes with WGPU
-        let tris = egui_context.tessellate(egui_fulloutput.shapes, egui_context.pixels_per_point());
+        let tris =
+            egui_context.tessellate(egui_fulloutput.shapes, egui_fulloutput.pixels_per_point);
         for (id, image_delta) in &egui_fulloutput.textures_delta.set {
             self.renderer
                 .update_texture(&self.device, &self.queue, *id, image_delta);
@@ -192,5 +202,10 @@ impl EguiWgpuRenderer {
 
         self.queue.submit(Some(encoder.finish()));
         surface_texture.present();
+    }
+
+    pub fn request_frame(&mut self) {
+        self.wl_surface.frame(&self.qh, self.wl_surface.clone());
+        self.wl_surface.commit();
     }
 }

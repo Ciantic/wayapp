@@ -236,10 +236,7 @@ impl Application {
     /// See egui_tokio_async.rs example for usage.
     ///
     /// This may panic if the event queue has already been taken.
-    pub fn run_dispatcher<T: Fn() + Send + 'static>(
-        &mut self,
-        dispatch_fn: T,
-    ) -> AsyncReader<T> {
+    pub fn run_dispatcher<T: Fn() + Send + 'static>(&mut self, dispatch_fn: T) -> AsyncReader<T> {
         let event_queue = self.event_queue.take().expect("Event queue already used");
         let mut dispatcher = AsyncReader::new(self.conn.clone(), event_queue, dispatch_fn);
         dispatcher.start_thread();
@@ -740,37 +737,37 @@ delegate_simple!(Application, WpViewporter, 1);
 // ----------------------------------------------------------------
 // Request frame helper
 // ----------------------------------------------------------------
-pub trait RequestFrame {
-    fn request_frame(&self, qh: &QueueHandle<Application>);
-}
+// pub trait RequestFrame {
+//     fn request_frame(&self, qh: &QueueHandle<Application>);
+// }
 
-impl RequestFrame for LayerSurface {
-    fn request_frame(&self, qh: &QueueHandle<Application>) {
-        let wl_surface = self.wl_surface();
-        wl_surface.frame(qh, wl_surface.clone());
-        wl_surface.commit();
-    }
-}
+// impl RequestFrame for LayerSurface {
+//     fn request_frame(&self, qh: &QueueHandle<Application>) {
+//         let wl_surface = self.wl_surface();
+//         wl_surface.frame(qh, wl_surface.clone());
+//         wl_surface.commit();
+//     }
+// }
 
-impl RequestFrame for Window {
-    fn request_frame(&self, qh: &QueueHandle<Application>) {
-        let wl_surface = self.wl_surface();
-        wl_surface.frame(qh, wl_surface.clone());
-        wl_surface.commit();
-    }
-}
+// impl RequestFrame for Window {
+//     fn request_frame(&self, qh: &QueueHandle<Application>) {
+//         let wl_surface = self.wl_surface();
+//         wl_surface.frame(qh, wl_surface.clone());
+//         wl_surface.commit();
+//     }
+// }
 
-impl RequestFrame for Popup {
-    fn request_frame(&self, qh: &QueueHandle<Application>) {
-        let wl_surface = self.wl_surface();
-        wl_surface.frame(qh, wl_surface.clone());
-        wl_surface.commit();
-    }
-}
+// impl RequestFrame for Popup {
+//     fn request_frame(&self, qh: &QueueHandle<Application>) {
+//         let wl_surface = self.wl_surface();
+//         wl_surface.frame(qh, wl_surface.clone());
+//         wl_surface.commit();
+//     }
+// }
 
-impl RequestFrame for WlSurface {
-    fn request_frame(&self, qh: &QueueHandle<Application>) {
-        self.frame(qh, self.clone());
-        self.commit();
-    }
-}
+// impl RequestFrame for WlSurface {
+//     fn request_frame(&self, qh: &QueueHandle<Application>) {
+//         self.frame(qh, self.clone());
+//         self.commit();
+//     }
+// }

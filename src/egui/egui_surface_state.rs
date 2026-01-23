@@ -5,6 +5,7 @@
 
 use crate::Application;
 use crate::EguiWgpuRenderer;
+// use crate::EguiWgpuRendererThread;
 use crate::Kind;
 use crate::WaylandEvent;
 use crate::WaylandToEguiInput;
@@ -22,7 +23,6 @@ use std::ops::DerefMut;
 use std::time::Duration;
 use std::time::Instant;
 use wayland_client::Proxy;
-use wayland_client::QueueHandle;
 use wayland_client::protocol::wl_surface::WlSurface;
 use wayland_protocols::wp::viewporter::client::wp_viewport::WpViewport;
 
@@ -33,7 +33,6 @@ pub struct EguiSurfaceState<T: Into<Kind> + Clone> {
     kind: Kind,
     renderer: EguiWgpuRenderer,
     input_state: WaylandToEguiInput,
-    queue_handle: QueueHandle<Application>,
     init_width: u32,
     init_height: u32,
     width: u32,  // WGPU Surface width in logical pixels
@@ -49,7 +48,7 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
     pub fn new(app: &Application, t: T, width: u32, height: u32) -> Self {
         let kind = t.clone().into();
         let wl_surface = kind.get_wl_surface();
-        let renderer = EguiWgpuRenderer::new(wl_surface, &app.conn);
+        let renderer = EguiWgpuRenderer::new(wl_surface, &app.qh, &app.conn);
         let clipboard = unsafe { Clipboard::new(app.conn.display().id().as_ptr() as *mut _) };
         let input_state = WaylandToEguiInput::new(clipboard);
 
@@ -59,7 +58,6 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
             kind,
             renderer,
             input_state,
-            queue_handle: app.qh.clone(),
             init_height: height,
             init_width: width,
             width,
@@ -109,9 +107,6 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
             // Update buffers (slow operation)
             self.update_buffers(width, height);
             self.last_buffer_update = Some(now);
-        } else {
-            // Just commit the surface with the new viewport destination
-            self.wl_surface().commit();
         }
     }
 
@@ -173,9 +168,10 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
     }
 
     pub fn request_frame(&mut self) {
-        let wl_surface = self.wl_surface();
-        wl_surface.frame(&self.queue_handle, wl_surface.clone());
-        wl_surface.commit();
+        // Just request frame callback from renderer thread
+        // The frame/commit operations are now handled by the renderer thread
+        // to avoid concurrent Wayland surface access
+        self.renderer.request_frame();
     }
 
     /// Process EGUI frame (layout, input) without GPU rendering
