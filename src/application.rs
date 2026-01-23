@@ -91,6 +91,9 @@ pub enum WaylandEvent {
     PopupDone(Popup),
     WindowRequestClose(Window),
     WindowConfigure(Window, WindowConfigure),
+    OutputCreated(WlOutput),
+    OutputUpdated(WlOutput),
+    OutputDestroyed(WlOutput),
     KeyboardEnter(WlSurface, Vec<u32>, Vec<Keysym>),
     KeyboardLeave(WlSurface),
     KeyPress(KeyEvent),
@@ -439,11 +442,19 @@ impl OutputHandler for Application {
         &mut self.output_state
     }
 
-    fn new_output(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _output: WlOutput) {}
+    fn new_output(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, output: WlOutput) {
+        self.wayland_events
+            .push(WaylandEvent::OutputCreated(output));
+    }
 
-    fn update_output(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _output: WlOutput) {}
+    fn update_output(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, output: WlOutput) {
+        self.wayland_events
+            .push(WaylandEvent::OutputUpdated(output));
+    }
 
-    fn output_destroyed(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _output: WlOutput) {
+    fn output_destroyed(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, output: WlOutput) {
+        self.wayland_events
+            .push(WaylandEvent::OutputDestroyed(output));
     }
 }
 
