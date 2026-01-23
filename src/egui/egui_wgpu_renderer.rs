@@ -13,34 +13,96 @@ use egui_wgpu::wgpu::CommandEncoder;
 use egui_wgpu::wgpu::Device;
 use egui_wgpu::wgpu::Queue;
 use egui_wgpu::wgpu::StoreOp;
+use egui_wgpu::wgpu::Surface;
+use egui_wgpu::wgpu::SurfaceConfiguration;
 use egui_wgpu::wgpu::TextureFormat;
 use egui_wgpu::wgpu::TextureView;
+use raw_window_handle::RawDisplayHandle;
+use raw_window_handle::RawWindowHandle;
 
 pub struct EguiWgpuRenderer {
     renderer: Renderer,
+    surface: Surface<'static>,
+    device: Device,
+    queue: Queue,
+    surface_config: Option<SurfaceConfiguration>,
+    output_format: TextureFormat,
 }
 
 impl EguiWgpuRenderer {
     pub fn new(
-        device: &Device,
-        output_color_format: TextureFormat,
-        output_depth_format: Option<TextureFormat>,
-        msaa_samples: u32,
+        raw_display_handle: RawDisplayHandle,
+        raw_window_handle: RawWindowHandle,
     ) -> EguiWgpuRenderer {
-        let egui_renderer = Renderer::new(
-            device,
-            output_color_format,
-            RendererOptions {
-                msaa_samples,
-                depth_stencil_format: output_depth_format,
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            ..Default::default()
+        });
 
+        let surface = unsafe {
+            instance
+                .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::RawHandle {
+                    raw_display_handle,
+                    raw_window_handle,
+                })
+                .expect("Failed to create WGPU surface")
+        };
+
+        let adapter =
+            futures::executor::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                compatible_surface: Some(&surface),
+                ..Default::default()
+            }))
+            .expect("Failed to find a suitable adapter");
+
+        let (device, queue) =
+            futures::executor::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+                memory_hints: wgpu::MemoryHints::MemoryUsage,
+                ..Default::default()
+            }))
+            .expect("Failed to request WGPU device");
+
+        let caps = surface.get_capabilities(&adapter);
+        let output_format = *caps
+            .formats
+            .get(0)
+            .unwrap_or(&wgpu::TextureFormat::Bgra8Unorm);
+
+        let egui_renderer = Renderer::new(
+            &device,
+            output_format,
+            RendererOptions {
+                msaa_samples: 1,
+                depth_stencil_format: None,
                 ..Default::default()
             },
         );
 
         EguiWgpuRenderer {
             renderer: egui_renderer,
+            surface,
+            device,
+            queue,
+            surface_config: None,
+            output_format,
         }
+    }
+
+    pub fn reconfigure_surface(&mut self, width: u32, height: u32) {
+        let width = width.max(1);
+        let height = height.max(1);
+        let config = SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format: self.output_format,
+            width,
+            height,
+            present_mode: wgpu::PresentMode::Mailbox,
+            alpha_mode: wgpu::CompositeAlphaMode::Auto,
+            view_formats: vec![self.output_format],
+            desired_maximum_frame_latency: 2,
+        };
+        self.surface.configure(&self.device, &config);
+        self.surface_config = Some(config);
     }
 
     /// Render the last processed frame to WGPU
@@ -49,23 +111,63 @@ impl EguiWgpuRenderer {
         &mut self,
         egui_fulloutput: egui::FullOutput,
         egui_context: &Context,
-        device: &Device,
-        queue: &Queue,
-        encoder: &mut CommandEncoder,
-        window_surface_view: &TextureView,
-        screen_descriptor: ScreenDescriptor,
+        width: u32,
+        height: u32,
+        pixels_per_point: f32,
     ) {
+        let surface_texture = match self.surface.get_current_texture() {
+            Ok(texture) => texture,
+            Err(e) => {
+                log::warn!("Failed to acquire surface texture: {:?}", e);
+                return;
+            }
+        };
+
+        let texture_view = surface_texture
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = self.device.create_command_encoder(&Default::default());
+
+        // Clear pass
+        {
+            let _ = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("egui clear pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &texture_view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+        }
+
+        let screen_descriptor = ScreenDescriptor {
+            size_in_pixels: [width, height],
+            pixels_per_point,
+        };
+
         // Draw EGUI shapes with WGPU
         let tris = egui_context.tessellate(egui_fulloutput.shapes, egui_context.pixels_per_point());
         for (id, image_delta) in &egui_fulloutput.textures_delta.set {
             self.renderer
-                .update_texture(device, queue, *id, image_delta);
+                .update_texture(&self.device, &self.queue, *id, image_delta);
         }
-        self.renderer
-            .update_buffers(device, queue, encoder, &tris, &screen_descriptor);
+        self.renderer.update_buffers(
+            &self.device,
+            &self.queue,
+            &mut encoder,
+            &tris,
+            &screen_descriptor,
+        );
         let rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: window_surface_view,
+                view: &texture_view,
                 resolve_target: None,
                 depth_slice: None,
                 ops: egui_wgpu::wgpu::Operations {
@@ -84,57 +186,8 @@ impl EguiWgpuRenderer {
         for x in &egui_fulloutput.textures_delta.free {
             self.renderer.free_texture(x)
         }
+
+        self.queue.submit(Some(encoder.finish()));
+        surface_texture.present();
     }
-
-    /*
-    pub fn end_frame_and_draw(
-        &mut self,
-        device: &Device,
-        queue: &Queue,
-        encoder: &mut CommandEncoder,
-        window_surface_view: &TextureView,
-        screen_descriptor: ScreenDescriptor,
-    ) -> egui::PlatformOutput {
-        if !self.frame_started {
-            panic!("begin_frame must be called before end_frame_and_draw can be called!");
-        }
-
-        let full_output = self.context.end_pass();
-
-        let tris = self
-            .context
-            .tessellate(full_output.shapes, self.context.pixels_per_point());
-        for (id, image_delta) in &full_output.textures_delta.set {
-            self.renderer
-                .update_texture(device, queue, *id, image_delta);
-        }
-        self.renderer
-            .update_buffers(device, queue, encoder, &tris, &screen_descriptor);
-        let rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: window_surface_view,
-                resolve_target: None,
-                depth_slice: None,
-                ops: egui_wgpu::wgpu::Operations {
-                    load: egui_wgpu::wgpu::LoadOp::Load,
-                    store: StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            label: Some("egui main render pass"),
-            occlusion_query_set: None,
-        });
-
-        self.renderer
-            .render(&mut rpass.forget_lifetime(), &tris, &screen_descriptor);
-        for x in &full_output.textures_delta.free {
-            self.renderer.free_texture(x)
-        }
-
-        self.frame_started = false;
-
-        full_output.platform_output
-    }
-    */
 }

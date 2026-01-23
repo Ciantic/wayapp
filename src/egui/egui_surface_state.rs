@@ -3,8 +3,6 @@
 //! This module provides a ViewManager-based approach to handling EGUI surfaces
 //! following the pattern from single_color.rs
 
-#![allow(dead_code)]
-
 use crate::Application;
 use crate::EguiWgpuRenderer;
 use crate::Kind;
@@ -20,10 +18,6 @@ use egui::PointerButton;
 use egui::Pos2;
 use egui::RawInput;
 use egui::ahash::HashMap;
-use egui_wgpu::Renderer;
-use egui_wgpu::RendererOptions;
-use egui_wgpu::ScreenDescriptor;
-use egui_wgpu::wgpu;
 use log::trace;
 use raw_window_handle::RawDisplayHandle;
 use raw_window_handle::RawWindowHandle;
@@ -58,9 +52,6 @@ pub struct EguiSurfaceState<T: Into<Kind> + Clone> {
     viewport: Option<WpViewport>,
     t: T,
     kind: Kind,
-    surface: wgpu::Surface<'static>,
-    device: wgpu::Device,
-    queue: wgpu::Queue,
     renderer: EguiWgpuRenderer,
     input_state: WaylandToEguiInput,
     queue_handle: QueueHandle<Application>,
@@ -69,8 +60,6 @@ pub struct EguiSurfaceState<T: Into<Kind> + Clone> {
     width: u32,  // WGPU Surface width in logical pixels
     height: u32, // WGPU Surface height in logical pixels
     scale_factor: i32,
-    surface_config: Option<wgpu::SurfaceConfiguration>,
-    output_format: wgpu::TextureFormat,
     last_buffer_update: Option<Instant>,
     last_full_output: Option<egui::FullOutput>,
     has_keyboard_focus: bool,
@@ -90,41 +79,7 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
                 .expect("Wayland surface handle was null"),
         ));
 
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
-            ..Default::default()
-        });
-
-        let surface = unsafe {
-            instance
-                .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::RawHandle {
-                    raw_display_handle,
-                    raw_window_handle,
-                })
-                .expect("Failed to create WGPU surface")
-        };
-
-        let adapter =
-            futures::executor::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-                compatible_surface: Some(&surface),
-                ..Default::default()
-            }))
-            .expect("Failed to find a suitable adapter");
-
-        let (device, queue) =
-            futures::executor::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-                memory_hints: wgpu::MemoryHints::MemoryUsage,
-                ..Default::default()
-            }))
-            .expect("Failed to request WGPU device");
-
-        let caps = surface.get_capabilities(&adapter);
-        let output_format = *caps
-            .formats
-            .get(0)
-            .unwrap_or(&wgpu::TextureFormat::Bgra8Unorm);
-
-        let renderer = EguiWgpuRenderer::new(&device, output_format, None, 1);
+        let renderer = EguiWgpuRenderer::new(raw_display_handle, raw_window_handle);
         let clipboard = unsafe { Clipboard::new(app.conn.display().id().as_ptr() as *mut _) };
         let input_state = WaylandToEguiInput::new(clipboard);
 
@@ -132,9 +87,6 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
             viewport: None,
             t,
             kind,
-            surface,
-            device,
-            queue,
             renderer,
             input_state,
             queue_handle: app.qh.clone(),
@@ -143,8 +95,6 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
             width,
             height,
             scale_factor: 1,
-            surface_config: None,
-            output_format,
             last_full_output: None,
             last_buffer_update: None,
             has_keyboard_focus: false,
@@ -293,58 +243,17 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
             }
         };
 
-        let surface_texture = match self.surface.get_current_texture() {
-            Ok(texture) => texture,
-            Err(e) => {
-                log::warn!("Failed to acquire surface texture: {:?}", e);
-                return;
-            }
-        };
-
-        let texture_view = surface_texture
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
-        let mut encoder = self.device.create_command_encoder(&Default::default());
-
-        // Clear pass
-        {
-            let _ = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("egui clear pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &texture_view,
-                    resolve_target: None,
-                    depth_slice: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
-        }
-
-        let screen_descriptor = ScreenDescriptor {
-            size_in_pixels: [
-                self.width.saturating_mul(self.physical_scale()),
-                self.height.saturating_mul(self.physical_scale()),
-            ],
-            pixels_per_point: self.physical_scale() as f32,
-        };
+        let width = self.width.saturating_mul(self.physical_scale());
+        let height = self.height.saturating_mul(self.physical_scale());
+        let pixels_per_point = self.physical_scale() as f32;
 
         self.renderer.render_to_wgpu(
             last_full_output,
             &self.egui_context,
-            &self.device,
-            &self.queue,
-            &mut encoder,
-            &texture_view,
-            screen_descriptor,
+            width,
+            height,
+            pixels_per_point,
         );
-
-        self.queue.submit(Some(encoder.finish()));
-        surface_texture.present();
     }
 
     fn render(&mut self, ui: &mut impl FnMut(&egui::Context)) -> PlatformOutput {
@@ -356,18 +265,7 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
     fn reconfigure_surface(&mut self) {
         let width = self.width.saturating_mul(self.physical_scale()).max(1);
         let height = self.height.saturating_mul(self.physical_scale()).max(1);
-        let config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: self.output_format,
-            width,
-            height,
-            present_mode: wgpu::PresentMode::Mailbox,
-            alpha_mode: wgpu::CompositeAlphaMode::Auto,
-            view_formats: vec![self.output_format],
-            desired_maximum_frame_latency: 2,
-        };
-        self.surface.configure(&self.device, &config);
-        self.surface_config = Some(config);
+        self.renderer.reconfigure_surface(width, height);
     }
 
     fn physical_scale(&self) -> u32 {
