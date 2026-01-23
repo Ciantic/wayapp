@@ -10,11 +10,13 @@ use wayapp::*;
 struct EguiApp {
     counter: i32,
     text: String,
+    fps: f32,
 }
 
 impl EguiApp {
     fn new() -> Self {
         Self {
+            fps: 0.0,
             counter: 0,
             text: "Hello from EGUI!".into(),
         }
@@ -23,6 +25,7 @@ impl EguiApp {
     fn ui(&mut self, ctx: &Context) {
         CentralPanel::default().show(ctx, |ui| {
             ui.heading("Egui WGPU / Smithay example");
+            ui.label(format!("FPS: {:.2}", self.fps));
 
             ui.separator();
 
@@ -112,5 +115,10 @@ fn main() {
         let events = app.take_wayland_events();
         example_window_app.handle_events(&mut app, &events, &mut |ctx| myapp1.ui(ctx));
         layer_surface_app.handle_events(&mut app, &events, &mut |ctx| myapp2.ui(ctx));
+        // if let Some(last_render) = example_window_app.last_render_time() {
+        //     let now = std::time::Instant::now();
+        //     let duration = now.duration_since(last_render);
+        //     myapp1.fps = 1.0 / duration.as_secs_f32();
+        // }
     }
 }
