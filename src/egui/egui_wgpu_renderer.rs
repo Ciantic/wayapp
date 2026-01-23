@@ -11,6 +11,12 @@ use egui_wgpu::wgpu::SurfaceConfiguration;
 use egui_wgpu::wgpu::TextureFormat;
 use raw_window_handle::RawDisplayHandle;
 use raw_window_handle::RawWindowHandle;
+use raw_window_handle::WaylandDisplayHandle;
+use raw_window_handle::WaylandWindowHandle;
+use std::ptr::NonNull;
+use wayland_client::Connection;
+use wayland_client::Proxy;
+use wayland_client::protocol::wl_surface::WlSurface;
 
 pub struct EguiWgpuRenderer {
     renderer: Renderer,
@@ -22,10 +28,15 @@ pub struct EguiWgpuRenderer {
 }
 
 impl EguiWgpuRenderer {
-    pub fn new(
-        raw_display_handle: RawDisplayHandle,
-        raw_window_handle: RawWindowHandle,
-    ) -> EguiWgpuRenderer {
+    pub fn new(wl_surface: &WlSurface, conn: &Connection) -> EguiWgpuRenderer {
+        let raw_display_handle = RawDisplayHandle::Wayland(WaylandDisplayHandle::new(
+            NonNull::new(conn.backend().display_ptr() as *mut _)
+                .expect("Wayland display pointer was null"),
+        ));
+        let raw_window_handle = RawWindowHandle::Wayland(WaylandWindowHandle::new(
+            NonNull::new(wl_surface.id().as_ptr() as *mut _)
+                .expect("Wayland surface handle was null"),
+        ));
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             ..Default::default()

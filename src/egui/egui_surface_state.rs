@@ -12,10 +12,6 @@ use crate::egui_to_cursor_shape;
 use egui::Context;
 use egui::PlatformOutput;
 use log::trace;
-use raw_window_handle::RawDisplayHandle;
-use raw_window_handle::RawWindowHandle;
-use raw_window_handle::WaylandDisplayHandle;
-use raw_window_handle::WaylandWindowHandle;
 use smithay_client_toolkit::seat::keyboard::KeyEvent;
 use smithay_client_toolkit::seat::keyboard::Modifiers as WaylandModifiers;
 use smithay_client_toolkit::seat::pointer::PointerEvent;
@@ -23,7 +19,6 @@ use smithay_clipboard::Clipboard;
 use std::num::NonZero;
 use std::ops::Deref;
 use std::ops::DerefMut;
-use std::ptr::NonNull;
 use std::time::Duration;
 use std::time::Instant;
 use wayland_client::Proxy;
@@ -54,16 +49,7 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
     pub fn new(app: &Application, t: T, width: u32, height: u32) -> Self {
         let kind = t.clone().into();
         let wl_surface = kind.get_wl_surface();
-        let raw_display_handle = RawDisplayHandle::Wayland(WaylandDisplayHandle::new(
-            NonNull::new(app.conn.backend().display_ptr() as *mut _)
-                .expect("Wayland display pointer was null"),
-        ));
-        let raw_window_handle = RawWindowHandle::Wayland(WaylandWindowHandle::new(
-            NonNull::new(wl_surface.id().as_ptr() as *mut _)
-                .expect("Wayland surface handle was null"),
-        ));
-
-        let renderer = EguiWgpuRenderer::new(raw_display_handle, raw_window_handle);
+        let renderer = EguiWgpuRenderer::new(wl_surface, &app.conn);
         let clipboard = unsafe { Clipboard::new(app.conn.display().id().as_ptr() as *mut _) };
         let input_state = WaylandToEguiInput::new(clipboard);
 
