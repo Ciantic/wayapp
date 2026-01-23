@@ -240,12 +240,14 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
         );
     }
 
+    /// Full render of EGUI frame (layout, input + GPU rendering)
     fn render(&mut self, ui: &mut impl FnMut(&egui::Context)) -> PlatformOutput {
         let platform_output = self.process_egui_frame(ui);
         self.render_to_wgpu();
         platform_output
     }
 
+    /// Update rendering surface size
     fn reconfigure_surface(&mut self) {
         let width = self.width.saturating_mul(self.physical_scale()).max(1);
         let height = self.height.saturating_mul(self.physical_scale()).max(1);
@@ -320,15 +322,15 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
                 }
                 WaylandEvent::KeyboardEnter(_, _serials, _keysyms) => {
                     self.handle_keyboard_enter();
+                    self.has_keyboard_focus = true;
                     self.request_frame();
                     let _ = app.conn.flush();
-                    self.has_keyboard_focus = true;
                 }
                 WaylandEvent::KeyboardLeave(_) => {
                     self.handle_keyboard_leave();
+                    self.has_keyboard_focus = false;
                     self.request_frame();
                     let _ = app.conn.flush();
-                    self.has_keyboard_focus = false;
                 }
                 WaylandEvent::KeyPress(key_event) => {
                     if self.has_keyboard_focus {
