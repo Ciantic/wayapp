@@ -84,6 +84,11 @@ impl EguiWgpuRendererThread {
         height: u32,
         pixels_per_point: f32,
     ) {
+        // If skipping frame rendering is implemented, then fulloutputs need to be
+        // combined with append:
+        //
+        // older_egui_fulloutput.append(egui_fulloutput);
+
         let _ = self.tx.send(EguiWgpuRendererThreadCommand::Render {
             fulloutput: egui_fulloutput,
             width,

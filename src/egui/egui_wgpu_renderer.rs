@@ -14,6 +14,7 @@ use raw_window_handle::RawWindowHandle;
 use raw_window_handle::WaylandDisplayHandle;
 use raw_window_handle::WaylandWindowHandle;
 use std::ptr::NonNull;
+use std::time::Instant;
 use wayland_client::Connection;
 use wayland_client::Proxy;
 use wayland_client::QueueHandle;
@@ -93,6 +94,18 @@ impl EguiWgpuRenderer {
             },
         );
 
+        // Enabling set_request_repaint_callback would require a way to throttle the
+        // repaint let wl_surface_ = wl_surface.clone();
+        // let qh_ = qh.clone();
+        // let conn_ = conn.clone();
+        // egui_context.set_request_repaint_callback(move |_info| {
+        //     // if _info.delay == Duration::ZERO {
+        //     wl_surface_.frame(&qh_, wl_surface_.clone());
+        //     wl_surface_.commit();
+        //     conn_.flush().unwrap();
+        //     // }
+        // });
+
         EguiWgpuRenderer {
             renderer: egui_renderer,
             surface,
@@ -137,6 +150,12 @@ impl EguiWgpuRenderer {
         height: u32,
         pixels_per_point: f32,
     ) {
+        println!(
+            "EGUI render_to_wgpu called with size {}x{} at {:?}",
+            width,
+            height,
+            Instant::now()
+        );
         if (width != self.width) || (height != self.height) {
             println!(
                 "Unexpected size change in EguiWgpuRenderer::render_to_wgpu, reconfiguring \

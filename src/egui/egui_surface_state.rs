@@ -12,7 +12,8 @@ use crate::WaylandEvent;
 use crate::WaylandToEguiInput;
 use crate::egui_to_cursor_shape;
 use egui::Context;
-use egui::PlatformOutput;
+use egui::CursorIcon;
+use egui::FullOutput;
 use log::trace;
 use smithay_client_toolkit::seat::keyboard::KeyEvent;
 use smithay_client_toolkit::seat::keyboard::Modifiers as WaylandModifiers;
@@ -40,8 +41,8 @@ pub struct EguiSurfaceState<T: Into<Kind> + Clone> {
     width: u32,  // WGPU Surface width in logical pixels
     height: u32, // WGPU Surface height in logical pixels
     scale_factor: i32,
+    last_cursor_icon: Option<CursorIcon>,
     last_buffer_update: Option<Instant>,
-    last_full_output: Option<egui::FullOutput>,
     has_keyboard_focus: bool,
     egui_context: Context,
 }
@@ -66,7 +67,7 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
             width,
             height,
             scale_factor: 1,
-            last_full_output: None,
+            last_cursor_icon: None,
             last_buffer_update: None,
             has_keyboard_focus: false,
             egui_context,
@@ -179,52 +180,35 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
 
     /// Process EGUI frame (layout, input) without GPU rendering
     /// This is cheap and can be called frequently
-    fn process_egui_frame(&mut self, ui: &mut impl FnMut(&egui::Context)) -> PlatformOutput {
+    fn process_egui_frame(&mut self, ui: &mut impl FnMut(&egui::Context)) -> FullOutput {
         let raw_input = self.input_state.take_raw_input();
-        self.egui_context.begin_pass(raw_input);
-        ui(&self.egui_context);
-
-        let platform_output = {
-            self.egui_context
-                .set_pixels_per_point(self.physical_scale() as f32);
-            let full_output = self.egui_context.end_pass();
-            let platform_output = full_output.platform_output.clone();
-            self.last_full_output = Some(full_output);
-            platform_output
-        };
-
-        for command in &platform_output.commands {
+        self.egui_context
+            .set_pixels_per_point(self.physical_scale() as f32);
+        let full_output = self.egui_context.run(raw_input, ui);
+        for command in &full_output.platform_output.commands {
             self.input_state.handle_output_command(command);
         }
+        self.last_cursor_icon = Some(full_output.platform_output.cursor_icon);
 
-        platform_output
+        full_output
     }
 
     /// Render the last processed EGUI frame to WGPU
     /// Only call this when necessary (e.g., on frame callback or when content
     /// changed)
-    fn render_to_wgpu(&mut self) {
-        let last_full_output = match self.last_full_output.take() {
-            Some(output) => output,
-            None => {
-                log::warn!("No frame to render - call process_egui_frame() first");
-                return;
-            }
-        };
-
+    fn render_to_wgpu(&mut self, full_output: egui::FullOutput) {
         let width = self.width.saturating_mul(self.physical_scale());
         let height = self.height.saturating_mul(self.physical_scale());
         let pixels_per_point = self.physical_scale() as f32;
 
         self.renderer
-            .render_to_wgpu(last_full_output, width, height, pixels_per_point);
+            .render_to_wgpu(full_output, width, height, pixels_per_point);
     }
 
     /// Full render of EGUI frame (layout, input + GPU rendering)
-    fn render(&mut self, ui: &mut impl FnMut(&egui::Context)) -> PlatformOutput {
-        let platform_output = self.process_egui_frame(ui);
-        self.render_to_wgpu();
-        platform_output
+    fn render(&mut self, ui: &mut impl FnMut(&egui::Context)) {
+        let full_output = self.process_egui_frame(ui);
+        self.render_to_wgpu(full_output);
     }
 
     /// Update rendering surface size
@@ -283,8 +267,10 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
                     self.render(ui);
                 }
                 WaylandEvent::Frame(_, _) => {
-                    let output = self.render(ui);
-                    app.set_cursor(egui_to_cursor_shape(output.cursor_icon));
+                    self.render(ui);
+                    if let Some(cursor) = self.last_cursor_icon {
+                        app.set_cursor(egui_to_cursor_shape(cursor));
+                    }
                 }
                 WaylandEvent::ScaleFactorChanged(_, factor) => {
                     self.scale_factor_changed(*factor);

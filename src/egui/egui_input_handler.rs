@@ -29,6 +29,7 @@ pub struct WaylandToEguiInput {
     start_time: Instant,
     clipboard: Clipboard,
     last_key_utf8: Option<String>,
+    has_keyboard_focus: bool,
 }
 
 impl WaylandToEguiInput {
@@ -42,6 +43,7 @@ impl WaylandToEguiInput {
             start_time: Instant::now(),
             clipboard,
             last_key_utf8: None,
+            has_keyboard_focus: false,
         }
     }
 
@@ -102,10 +104,12 @@ impl WaylandToEguiInput {
     }
 
     pub fn handle_keyboard_enter(&mut self) {
+        self.has_keyboard_focus = true;
         self.events.push(Event::WindowFocused(true));
     }
 
     pub fn handle_keyboard_leave(&mut self) {
+        self.has_keyboard_focus = false;
         self.events.push(Event::WindowFocused(false));
     }
 
@@ -176,7 +180,7 @@ impl WaylandToEguiInput {
             events,
             hovered_files: Vec::new(),
             dropped_files: Vec::new(),
-            focused: true,
+            focused: self.has_keyboard_focus,
             ..Default::default()
         }
     }
