@@ -150,12 +150,12 @@ impl EguiWgpuRenderer {
         height: u32,
         pixels_per_point: f32,
     ) {
-        println!(
-            "EGUI render_to_wgpu called with size {}x{} at {:?}",
-            width,
-            height,
-            Instant::now()
-        );
+        // println!(
+        //     "EGUI render_to_wgpu called with size {}x{} at {:?}",
+        //     width,
+        //     height,
+        //     Instant::now()
+        // );
         if (width != self.width) || (height != self.height) {
             println!(
                 "Unexpected size change in EguiWgpuRenderer::render_to_wgpu, reconfiguring \
