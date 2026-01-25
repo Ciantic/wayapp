@@ -244,6 +244,12 @@ impl EguiWgpuRenderer {
     }
 
     pub fn request_frame(&mut self) {
+        // This triggers the Wayland frame callback
+        //
+        // Reason this functionality is here because I've noticed that if WGPU renders
+        // the frame while triggering the `commit` it will sometimes crash. This was
+        // tested on threaded WGPU renderer. While WlSurface does have its data
+        // stored in Arc, it still doesn't seem to be thread-safe.
         self.wl_surface.frame(&self.qh, self.wl_surface.clone());
         self.wl_surface.commit();
         self.conn.flush().unwrap();
