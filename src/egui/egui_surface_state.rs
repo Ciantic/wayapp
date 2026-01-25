@@ -180,6 +180,10 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
 
     /// Process EGUI frame (layout, input) without GPU rendering
     /// This is cheap and can be called frequently
+    ///
+    /// Return value `FullOutput` must be passed to rendering step, skipping
+    /// FullOutputs will result in lost UI state. However combining FullOutputs
+    /// is possible if needed, with `FullOutput::append()` for skipping frames.
     fn process_egui_frame(&mut self, ui: &mut impl FnMut(&egui::Context)) -> FullOutput {
         let raw_input = self.input_state.take_raw_input();
         self.egui_context
