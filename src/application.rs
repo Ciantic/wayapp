@@ -51,6 +51,7 @@ use smithay_client_toolkit::shm::ShmHandler;
 use smithay_client_toolkit::subcompositor::SubcompositorState;
 use smithay_clipboard::Clipboard;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::thread::JoinHandle;
 use wayland_backend::client::ObjectId;
 use wayland_backend::client::WaylandError;
@@ -144,6 +145,7 @@ pub struct Application {
     last_pointer: Option<WlPointer>,
     pointer_shape_devices: HashMap<ObjectId, WpCursorShapeDeviceV1>,
     keyboard_focused_surface: Option<ObjectId>,
+    dispatcher: Option<InternalDispatcherThread>,
 }
 
 impl Application {
@@ -189,6 +191,7 @@ impl Application {
             last_pointer: None,
             pointer_shape_devices: HashMap::new(),
             keyboard_focused_surface: None,
+            dispatcher: None,
         }
     }
 
@@ -239,50 +242,86 @@ impl Application {
     /// See egui_tokio_async.rs example for usage.
     ///
     /// This may panic if the event queue has already been taken.
-    pub fn run_dispatcher<T: Fn() + Send + 'static>(&mut self, dispatch_fn: T) -> AsyncReader<T> {
+    pub fn run_dispatcher<T: Fn() + Send + Sync + 'static>(&mut self, dispatch_fn: T) {
         let event_queue = self.event_queue.take().expect("Event queue already used");
-        let mut dispatcher = AsyncReader::new(self.conn.clone(), event_queue, dispatch_fn);
+        let mut dispatcher =
+            InternalDispatcherThread::new(self.conn.clone(), event_queue, dispatch_fn);
         dispatcher.start_thread();
-        dispatcher
+        self.dispatcher = Some(dispatcher);
+    }
+
+    /// Dispatch fake Wayland events, and call the dispatch function
+    ///
+    /// For instance scheduled frames can be dispatched this way.
+    pub fn fake_dispatch_events(&mut self, events: Vec<WaylandEvent>) {
+        self.wayland_events.extend(events);
+        if let Some(dispatcher) = &mut self.dispatcher {
+            dispatcher.get_dispatch_fn()();
+        }
+    }
+
+    /// Dispatch pending events, and return collected Wayland events
+    ///
+    /// Used with `run_dispatcher` method, when dispatch_fn is signaled
+    pub fn dispatch_pending(&mut self) -> Vec<WaylandEvent> {
+        if let Some(mut dispatcher) = self.dispatcher.take() {
+            let res = dispatcher.dispatch_pending(self);
+            self.dispatcher = Some(dispatcher);
+            res
+        } else {
+            panic!("Dispatcher not running, call run_dispatcher first");
+        }
     }
 }
 
-enum AsyncReaderError {
+enum InternalDispatcherError {
     RecvError(std::sync::mpsc::RecvError),
     WaylandError(WaylandError),
 }
-impl From<std::sync::mpsc::RecvError> for AsyncReaderError {
+impl From<std::sync::mpsc::RecvError> for InternalDispatcherError {
     fn from(e: std::sync::mpsc::RecvError) -> Self {
-        AsyncReaderError::RecvError(e)
+        InternalDispatcherError::RecvError(e)
     }
 }
-impl From<WaylandError> for AsyncReaderError {
+impl From<WaylandError> for InternalDispatcherError {
     fn from(e: WaylandError) -> Self {
-        AsyncReaderError::WaylandError(e)
+        InternalDispatcherError::WaylandError(e)
     }
 }
 
-pub struct AsyncReader<T: Fn() + Send + 'static> {
+struct InternalDispatcherThread {
     conn: Option<Connection>,
     event_queue: EventQueue<Application>,
     count_reader: Option<std::sync::mpsc::Receiver<Option<usize>>>,
     count_sender: std::sync::mpsc::Sender<Option<usize>>,
-    dispatch_fn: Option<T>,
+    dispatch_fn: Option<Arc<dyn Fn() + Sync + Send + 'static>>,
     #[allow(dead_code)]
     reader_thread: Option<JoinHandle<()>>,
 }
 
-impl<T: Fn() + Send + 'static> AsyncReader<T> {
-    fn new(conn: Connection, event_queue: EventQueue<Application>, dispatch_fn: T) -> Self {
+impl InternalDispatcherThread {
+    fn new<T: Fn() + Sync + Send + 'static>(
+        conn: Connection,
+        event_queue: EventQueue<Application>,
+        dispatch_fn: T,
+    ) -> Self {
         let (count_sender, count_reader) = std::sync::mpsc::channel::<Option<usize>>();
-        AsyncReader {
+        InternalDispatcherThread {
             conn: Some(conn),
             event_queue,
             count_sender,
             count_reader: Some(count_reader),
-            dispatch_fn: Some(dispatch_fn),
+            dispatch_fn: Some(Arc::new(dispatch_fn)),
             reader_thread: None,
         }
+    }
+
+    /// Get the dispatch function
+    pub(crate) fn get_dispatch_fn(&self) -> Arc<dyn Fn() + Sync + Send + 'static> {
+        self.dispatch_fn
+            .as_ref()
+            .expect("Dispatch function missing")
+            .clone()
     }
 
     /// Start the blocking reading thread
@@ -296,17 +335,17 @@ impl<T: Fn() + Send + 'static> AsyncReader<T> {
             (dispatch_fn)();
 
             loop {
-                match AsyncReader::read_blocking(&conn, &dispatch_fn, &count_reader) {
+                match InternalDispatcherThread::read_blocking(&conn, &dispatch_fn, &count_reader) {
                     Ok(cont) => {
                         if !cont {
                             break;
                         }
                     }
-                    Err(AsyncReaderError::RecvError(_)) => {
+                    Err(InternalDispatcherError::RecvError(_)) => {
                         // Sender dropped, exit thread
                         break;
                     }
-                    Err(AsyncReaderError::WaylandError(e)) => {
+                    Err(InternalDispatcherError::WaylandError(e)) => {
                         eprintln!("Error in Wayland reader thread: {:?}", e);
                         break;
                     }
@@ -320,9 +359,9 @@ impl<T: Fn() + Send + 'static> AsyncReader<T> {
     #[inline]
     fn read_blocking(
         conn: &Connection,
-        dispatch_fn: &T,
+        dispatch_fn: &Arc<dyn Fn() + Sync + Send + 'static>,
         count_reader: &std::sync::mpsc::Receiver<Option<usize>>,
-    ) -> Result<bool, AsyncReaderError> {
+    ) -> Result<bool, InternalDispatcherError> {
         // Implementation follows `EventQueue::blocking_dispatch` logic
         match count_reader.recv()? {
             Some(count) => {
@@ -350,7 +389,7 @@ impl<T: Fn() + Send + 'static> AsyncReader<T> {
     }
 
     /// Dispatch pending events, and return collected Wayland events
-    pub fn dispatch_pending(&mut self, app: &mut Application) -> Vec<WaylandEvent> {
+    pub(crate) fn dispatch_pending(&mut self, app: &mut Application) -> Vec<WaylandEvent> {
         let count = self
             .event_queue
             .dispatch_pending(app)

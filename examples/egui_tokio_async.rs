@@ -103,7 +103,7 @@ async fn main() {
 
     spawn_ticking_thread(tx.clone());
 
-    let mut dispatcher = app.run_dispatcher(move || tx.send(AppEvent::WaylandDispatch).unwrap());
+    app.run_dispatcher(move || tx.send(AppEvent::WaylandDispatch).unwrap());
     loop {
         if let Some(event) = rx.recv().await {
             match event {
@@ -115,7 +115,7 @@ async fn main() {
                     );
                 }
                 AppEvent::WaylandDispatch => {
-                    let events = dispatcher.dispatch_pending(&mut app);
+                    let events = app.dispatch_pending();
                     example_window_app.handle_events(&mut app, &events, &mut |ctx| myapp1.ui(ctx));
                     layer_surface_app.handle_events(&mut app, &events, &mut |ctx| myapp2.ui(ctx));
                 }

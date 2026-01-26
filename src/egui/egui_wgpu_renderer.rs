@@ -14,7 +14,6 @@ use raw_window_handle::RawWindowHandle;
 use raw_window_handle::WaylandDisplayHandle;
 use raw_window_handle::WaylandWindowHandle;
 use std::ptr::NonNull;
-use std::time::Instant;
 use wayland_client::Connection;
 use wayland_client::Proxy;
 use wayland_client::QueueHandle;

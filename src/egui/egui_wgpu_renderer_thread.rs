@@ -10,7 +10,7 @@ use wayland_client::protocol::wl_surface::WlSurface;
 
 enum EguiWgpuRendererThreadCommand {
     Render,
-    ReconfigureSurface { width: u32, height: u32 },
+    // ReconfigureSurface { width: u32, height: u32 },
     RequestFrame,
 }
 
@@ -96,9 +96,9 @@ impl EguiWgpuRendererThread {
                                 last_render = std::time::Instant::now();
                             }
                         }
-                        EguiWgpuRendererThreadCommand::ReconfigureSurface { width, height } => {
-                            // renderer.reconfigure_surface(width, height);
-                        }
+                        // EguiWgpuRendererThreadCommand::ReconfigureSurface { .. } => {
+                        //     // renderer.reconfigure_surface(width, height);
+                        // }
                         EguiWgpuRendererThreadCommand::RequestFrame => {
                             renderer.request_frame();
                         }
@@ -115,10 +115,11 @@ impl EguiWgpuRendererThread {
     }
 
     /// Resize and reconfigure the WGPU surface
-    pub fn reconfigure_surface(&mut self, width: u32, height: u32) {
-        let _ = self
-            .tx
-            .send(EguiWgpuRendererThreadCommand::ReconfigureSurface { width, height });
+    pub fn reconfigure_surface(&mut self, _width: u32, _height: u32) {
+        // let _ = self
+        //     .tx
+        //     .send(EguiWgpuRendererThreadCommand::ReconfigureSurface { width,
+        // height });
     }
 
     /// Renders EGUI output to the WGPU surface
