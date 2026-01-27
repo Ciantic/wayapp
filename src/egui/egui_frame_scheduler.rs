@@ -38,7 +38,6 @@ impl EguiFrameScheduler {
         let frame_time_changed = Arc::new(Condvar::new());
         let next_frame_time_clone = next_frame_time.clone();
         let frame_time_changed_clone = frame_time_changed.clone();
-        let wl_surface = Arc::new(wl_surface);
 
         context.set_request_repaint_callback(move |info| {
             let min_delay = std::time::Duration::from_nanos(16_666_666); // ~60 FPS
@@ -81,7 +80,7 @@ impl EguiFrameScheduler {
                             // Deadline has passed, emit the event
                             drop(next);
                             event_emitter.emit_events(vec![crate::WaylandEvent::Frame(
-                                (*wl_surface).clone(),
+                                wl_surface.clone(),
                                 0,
                             )]);
 
