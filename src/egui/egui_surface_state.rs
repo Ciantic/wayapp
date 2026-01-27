@@ -22,6 +22,7 @@ use smithay_clipboard::Clipboard;
 use std::num::NonZero;
 use std::ops::Deref;
 use std::ops::DerefMut;
+use std::time::Instant;
 use wayland_client::Proxy;
 use wayland_client::protocol::wl_surface::WlSurface;
 use wayland_protocols::wp::viewporter::client::wp_viewport::WpViewport;
@@ -41,8 +42,10 @@ pub struct EguiSurfaceState<T: Into<Kind> + Clone> {
     scale_factor: i32,
     last_cursor_icon: Option<CursorIcon>,
     last_fulloutput: Option<egui::FullOutput>,
+    frame_timings: Option<(Instant, Instant)>,
     has_keyboard_focus: bool,
     egui_context: Context,
+
     #[allow(dead_code)]
     egui_frame_scheduler: EguiFrameScheduler,
 }
@@ -71,6 +74,7 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
             scale_factor: 1,
             last_cursor_icon: None,
             last_fulloutput: None,
+            frame_timings: None,
             has_keyboard_focus: false,
             egui_context,
             egui_frame_scheduler,
@@ -180,11 +184,25 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
         self.process_egui_frame(ui);
         if let Some(full_output) = self.last_fulloutput.take() {
             self.render_to_wgpu(full_output);
+
+            // Update frame timings
+            let now = Instant::now();
+            let old = self
+                .frame_timings
+                .as_ref()
+                .map(|(_, end)| *end)
+                .unwrap_or(now);
+            self.frame_timings = Some((old, now));
         }
     }
 
     fn physical_scale(&self) -> u32 {
         self.scale_factor.max(1) as u32
+    }
+
+    /// Get the last frame timings (previous frame time, current frame time)
+    pub fn get_frame_timings(&self) -> Option<(Instant, Instant)> {
+        self.frame_timings
     }
 
     /// Handle Wayland events and update surfaces accordingly

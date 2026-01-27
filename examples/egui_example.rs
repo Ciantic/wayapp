@@ -5,12 +5,14 @@ use smithay_client_toolkit::shell::wlr_layer::Anchor;
 use smithay_client_toolkit::shell::wlr_layer::KeyboardInteractivity;
 use smithay_client_toolkit::shell::wlr_layer::Layer;
 use smithay_client_toolkit::shell::xdg::window::WindowDecorations;
+use std::time::Instant;
 use wayapp::*;
 
 struct EguiApp {
     counter: i32,
     text: String,
     fps: f32,
+    last_render: Instant,
 }
 
 impl EguiApp {
@@ -19,13 +21,24 @@ impl EguiApp {
             fps: 0.0,
             counter: 0,
             text: "Hello from EGUI!".into(),
+            last_render: Instant::now(),
+        }
+    }
+
+    fn set_last_render(&mut self, prev_next_frame: (Instant, Instant)) {
+        let (prev_frame, next_frame) = prev_next_frame;
+        self.last_render = next_frame;
+        let frame_time = next_frame.duration_since(prev_frame).as_secs_f32();
+        if frame_time > 0.0 {
+            self.fps = 1.0 / frame_time;
         }
     }
 
     fn ui(&mut self, ctx: &Context) {
         CentralPanel::default().show(ctx, |ui| {
             ui.heading("Egui WGPU / Smithay example");
-            ui.label(format!("FPS: {:.2}", self.fps));
+            ui.label(format!("Last render time: {:?}", self.last_render));
+            ui.label(format!("FPS between two last frames: {:.2}", self.fps));
 
             ui.separator();
 
@@ -125,6 +138,12 @@ fn main() {
                     let events = app.dispatch_pending(token);
                     example_window_app.handle_events(&mut app, &events, &mut |ctx| myapp1.ui(ctx));
                     layer_surface_app.handle_events(&mut app, &events, &mut |ctx| myapp2.ui(ctx));
+                    if let Some(last_render) = example_window_app.get_frame_timings() {
+                        myapp1.set_last_render(last_render);
+                    }
+                    if let Some(last_render) = layer_surface_app.get_frame_timings() {
+                        myapp2.set_last_render(last_render);
+                    }
                 } // Handle other events here
             }
         }
