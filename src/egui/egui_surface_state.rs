@@ -137,7 +137,6 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
             return;
         }
         self.scale_factor = factor;
-        self.reconfigure_surface();
     }
 
     pub fn request_frame(&mut self, app: &mut Application) {
@@ -182,13 +181,6 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
         if let Some(full_output) = self.last_fulloutput.take() {
             self.render_to_wgpu(full_output);
         }
-    }
-
-    /// Update rendering surface size
-    fn reconfigure_surface(&mut self) {
-        let width = self.width.saturating_mul(self.physical_scale()).max(1);
-        let height = self.height.saturating_mul(self.physical_scale()).max(1);
-        self.renderer.reconfigure_surface(width, height);
     }
 
     fn physical_scale(&self) -> u32 {
@@ -248,6 +240,7 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
                 WaylandEvent::ScaleFactorChanged(_, factor) => {
                     self.scale_factor_changed(*factor);
                     self.process_egui_frame(ui);
+                    self.request_frame(app);
                 }
                 WaylandEvent::PointerEvent((surface, position, event_kind)) => {
                     self.handle_pointer_event(&PointerEvent {
