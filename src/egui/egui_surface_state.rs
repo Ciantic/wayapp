@@ -44,6 +44,7 @@ pub struct EguiSurfaceState<T: Into<Kind> + Clone> {
     scale_factor: i32,
     last_cursor_icon: Option<CursorIcon>,
     last_buffer_update: Option<Instant>,
+    last_fulloutput: Option<egui::FullOutput>,
     has_keyboard_focus: bool,
     egui_context: Context,
     egui_frame_scheduler: EguiFrameScheduler,
@@ -54,7 +55,7 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
         let kind = t.clone().into();
         let wl_surface = kind.get_wl_surface();
         let egui_context = Context::default();
-        let renderer = EguiWgpuRenderer::new(&egui_context, wl_surface, &app.qh, &app.conn);
+        let renderer = EguiWgpuRenderer::new(&egui_context, wl_surface, &app.conn);
         let clipboard = unsafe { Clipboard::new(app.conn.display().id().as_ptr() as *mut _) };
         let input_state = WaylandToEguiInput::new(clipboard);
         let egui_frame_scheduler =
@@ -73,6 +74,7 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
             scale_factor: 1,
             last_cursor_icon: None,
             last_buffer_update: None,
+            last_fulloutput: None,
             has_keyboard_focus: false,
             egui_context,
             egui_frame_scheduler,
@@ -92,31 +94,10 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
     }
 
     fn configure(&mut self, app: &Application, width: u32, height: u32) {
-        trace!(
-            "Configuring EGUI surface {} to {}x{}",
-            self.wl_surface().id(),
-            width,
-            height
-        );
-        const DEBOUNCE_MS: u64 = 16; // ~60fps, adjust as needed
-
-        let now = Instant::now();
-
-        // Always resize viewport (fast operation)
         self.resize_viewport(app, width, height);
-
-        // Check if we should update buffers (debounced)
-        let should_update_buffer = if let Some(last_time) = self.last_buffer_update {
-            now.duration_since(last_time) >= Duration::from_millis(DEBOUNCE_MS)
-        } else {
-            true // First configure, always update
-        };
-
-        if should_update_buffer {
-            // Update buffers (slow operation)
-            self.update_buffers(width, height);
-            self.last_buffer_update = Some(now);
-        }
+        self.width = width.max(1);
+        self.height = height.max(1);
+        self.input_state.set_screen_size(self.width, self.height);
     }
 
     fn resize_viewport(&mut self, app: &Application, width: u32, height: u32) {
@@ -130,19 +111,6 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
         });
 
         viewport.set_destination(width as i32, height as i32);
-    }
-
-    fn update_buffers(&mut self, width: u32, height: u32) {
-        trace!(
-            "Updating EGUI surface {} buffers to {}x{}",
-            self.wl_surface().id(),
-            width,
-            height
-        );
-        self.width = width.max(1);
-        self.height = height.max(1);
-        self.input_state.set_screen_size(self.width, self.height);
-        self.reconfigure_surface();
     }
 
     fn handle_pointer_event(&mut self, event: &PointerEvent) {
@@ -176,20 +144,15 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
         self.reconfigure_surface();
     }
 
-    pub fn request_frame(&mut self) {
-        // Just request frame callback from renderer thread
-        // The frame/commit operations are now handled by the renderer thread
-        // to avoid concurrent Wayland surface access
-        self.renderer.request_frame();
+    pub fn request_frame(&mut self, app: &mut Application) {
+        self.wl_surface().frame(&app.qh, self.wl_surface().clone());
+        self.wl_surface().commit();
+        app.conn.flush().unwrap();
     }
 
     /// Process EGUI frame (layout, input) without GPU rendering
     /// This is cheap and can be called frequently
-    ///
-    /// Return value `FullOutput` must be passed to rendering step, skipping
-    /// FullOutputs will result in lost UI state. However combining FullOutputs
-    /// is possible if needed, with `FullOutput::append()` for skipping frames.
-    fn process_egui_frame(&mut self, ui: &mut impl FnMut(&egui::Context)) -> FullOutput {
+    fn process_egui_frame(&mut self, ui: &mut impl FnMut(&egui::Context)) {
         let raw_input = self.input_state.take_raw_input();
         self.egui_context
             .set_pixels_per_point(self.physical_scale() as f32);
@@ -197,9 +160,12 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
         for command in &full_output.platform_output.commands {
             self.input_state.handle_output_command(command);
         }
+        if let Some(last_fulloutput) = &mut self.last_fulloutput {
+            last_fulloutput.append(full_output.clone());
+        } else {
+            self.last_fulloutput = Some(full_output.clone());
+        }
         self.last_cursor_icon = Some(full_output.platform_output.cursor_icon);
-
-        full_output
     }
 
     /// Render the last processed EGUI frame to WGPU
@@ -216,8 +182,10 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
 
     /// Full render of EGUI frame (layout, input + GPU rendering)
     fn render(&mut self, ui: &mut impl FnMut(&egui::Context)) {
-        let full_output = self.process_egui_frame(ui);
-        self.render_to_wgpu(full_output);
+        self.process_egui_frame(ui);
+        if let Some(full_output) = self.last_fulloutput.take() {
+            self.render_to_wgpu(full_output);
+        }
     }
 
     /// Update rendering surface size
@@ -259,21 +227,21 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
                         .get();
 
                     self.configure(app, width, height);
-                    self.render(ui);
+                    self.request_frame(app);
                 }
                 WaylandEvent::LayerShellConfigure(_, config) => {
                     let width = config.new_size.0;
                     let height = config.new_size.1;
 
                     self.configure(app, width, height);
-                    self.render(ui);
+                    self.request_frame(app);
                 }
                 WaylandEvent::PopupConfigure(_, config) => {
                     let width = config.width as u32;
                     let height = config.height as u32;
 
                     self.configure(app, width, height);
-                    self.render(ui);
+                    self.request_frame(app);
                 }
                 WaylandEvent::Frame(_, _) => {
                     self.render(ui);
@@ -283,7 +251,7 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
                 }
                 WaylandEvent::ScaleFactorChanged(_, factor) => {
                     self.scale_factor_changed(*factor);
-                    self.request_frame();
+                    self.process_egui_frame(ui);
                 }
                 WaylandEvent::PointerEvent((surface, position, event_kind)) => {
                     self.handle_pointer_event(&PointerEvent {
@@ -291,39 +259,39 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
                         position: position.clone(),
                         kind: event_kind.clone(),
                     });
-                    self.request_frame();
+                    self.process_egui_frame(ui);
                 }
                 WaylandEvent::KeyboardEnter(_, _serials, _keysyms) => {
                     self.handle_keyboard_enter();
                     self.has_keyboard_focus = true;
-                    self.request_frame();
+                    self.process_egui_frame(ui);
                 }
                 WaylandEvent::KeyboardLeave(_) => {
                     self.handle_keyboard_leave();
                     self.has_keyboard_focus = false;
-                    self.request_frame();
+                    self.process_egui_frame(ui);
                 }
                 WaylandEvent::KeyPress(key_event) => {
                     if self.has_keyboard_focus {
                         self.handle_keyboard_event(key_event, true, false);
-                        self.request_frame();
+                        self.process_egui_frame(ui);
                     }
                 }
                 WaylandEvent::KeyRelease(key_event) => {
                     if self.has_keyboard_focus {
                         self.handle_keyboard_event(key_event, false, false);
-                        self.request_frame();
+                        self.process_egui_frame(ui);
                     }
                 }
                 WaylandEvent::KeyRepeat(key_event) => {
                     if self.has_keyboard_focus {
                         self.handle_keyboard_event(key_event, true, true);
-                        self.request_frame();
+                        self.process_egui_frame(ui);
                     }
                 }
                 WaylandEvent::ModifiersChanged(modifiers) => {
                     self.update_modifiers(modifiers);
-                    self.request_frame();
+                    self.process_egui_frame(ui);
                 }
                 _ => {}
             }

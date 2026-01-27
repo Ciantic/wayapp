@@ -48,12 +48,11 @@ impl EguiWgpuRendererThread {
 
         // Moved to thread:
         let wl_surface_ = wl_surface.clone();
-        let qh_ = qh.clone();
         let conn_ = conn.clone();
         let egui_context = egui_context.clone();
         let render_input_ = render_input.clone();
         let thread = std::thread::spawn(move || {
-            let mut renderer = EguiWgpuRenderer::new(&egui_context, &wl_surface_, &qh_, &conn_);
+            let mut renderer = EguiWgpuRenderer::new(&egui_context, &wl_surface_, &conn_);
             let mut last_render = std::time::Instant::now()
                 .checked_sub(Duration::from_secs(3))
                 .unwrap();
@@ -100,7 +99,7 @@ impl EguiWgpuRendererThread {
                         //     // renderer.reconfigure_surface(width, height);
                         // }
                         EguiWgpuRendererThreadCommand::RequestFrame => {
-                            renderer.request_frame();
+                            // renderer.request_frame();
                         }
                     }
                 }

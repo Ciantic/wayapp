@@ -20,16 +20,13 @@ use wayland_client::QueueHandle;
 use wayland_client::protocol::wl_surface::WlSurface;
 
 pub struct EguiWgpuRenderer {
-    wl_surface: WlSurface,
     egui_context: Context,
-    qh: wayland_client::QueueHandle<crate::Application>,
     renderer: Renderer,
     surface: Surface<'static>,
     device: Device,
     queue: Queue,
     surface_config: Option<SurfaceConfiguration>,
     output_format: TextureFormat,
-    conn: Connection,
     width: u32,
     height: u32,
 }
@@ -38,7 +35,6 @@ impl EguiWgpuRenderer {
     pub fn new(
         egui_context: &Context,
         wl_surface: &WlSurface,
-        qh: &QueueHandle<crate::Application>,
         conn: &Connection,
     ) -> EguiWgpuRenderer {
         let raw_display_handle = RawDisplayHandle::Wayland(WaylandDisplayHandle::new(
@@ -112,9 +108,6 @@ impl EguiWgpuRenderer {
             queue,
             surface_config: None,
             output_format,
-            qh: qh.clone(),
-            wl_surface: wl_surface.clone(),
-            conn: conn.clone(),
             width: 0,
             height: 0,
             egui_context: egui_context.clone(),
@@ -240,17 +233,5 @@ impl EguiWgpuRenderer {
 
         self.queue.submit(Some(encoder.finish()));
         surface_texture.present();
-    }
-
-    pub fn request_frame(&mut self) {
-        // This triggers the Wayland frame callback
-        //
-        // Reason this functionality is here because I've noticed that if WGPU renders
-        // the frame while triggering the `commit` it will sometimes crash. This was
-        // tested on threaded WGPU renderer. While WlSurface does have its data
-        // stored in Arc, it still doesn't seem to be thread-safe.
-        self.wl_surface.frame(&self.qh, self.wl_surface.clone());
-        self.wl_surface.commit();
-        self.conn.flush().unwrap();
     }
 }
