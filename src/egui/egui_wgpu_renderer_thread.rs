@@ -32,7 +32,7 @@ impl EguiWgpuRendererThread {
     pub fn new(
         egui_context: &Context,
         wl_surface: &WlSurface,
-        qh: &QueueHandle<Application>,
+        _qh: &QueueHandle<Application>,
         conn: &Connection,
     ) -> EguiWgpuRendererThread {
         let (tx, rx) = std::sync::mpsc::sync_channel(9999);

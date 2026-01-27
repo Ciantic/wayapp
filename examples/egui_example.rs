@@ -53,10 +53,20 @@ impl EguiApp {
     }
 }
 
+enum AppEvent {
+    WaylandDispatch(DispatchToken),
+    // Other events can be added here
+}
+
 fn main() {
     unsafe { std::env::set_var("RUST_LOG", "wayapp=trace") };
     env_logger::init();
-    let mut app = Application::new(|| {});
+
+    // Create channel for external events
+    let (tx, rx) = std::sync::mpsc::channel::<AppEvent>();
+    let mut app = Application::new(move |t| {
+        let _ = tx.send(AppEvent::WaylandDispatch(t));
+    });
     let mut myapp1 = EguiApp::new();
     let mut myapp2 = EguiApp::new();
     let first_monitor = app
@@ -106,19 +116,17 @@ fn main() {
     let mut layer_surface_app = EguiSurfaceState::new(&app, &layer_surface, 256, 256);
 
     // Run the Wayland event loop
-    let mut event_queue = app.event_queue.take().unwrap();
-    loop {
-        event_queue
-            .blocking_dispatch(&mut app)
-            .expect("Wayland dispatch failed");
+    app.run_dispatcher();
 
-        let events = app.take_wayland_events();
-        example_window_app.handle_events(&mut app, &events, &mut |ctx| myapp1.ui(ctx));
-        layer_surface_app.handle_events(&mut app, &events, &mut |ctx| myapp2.ui(ctx));
-        // if let Some(last_render) = example_window_app.last_render_time() {
-        //     let now = std::time::Instant::now();
-        //     let duration = now.duration_since(last_render);
-        //     myapp1.fps = 1.0 / duration.as_secs_f32();
-        // }
+    loop {
+        if let Ok(event) = rx.recv() {
+            match event {
+                AppEvent::WaylandDispatch(token) => {
+                    let events = app.dispatch_pending(token);
+                    example_window_app.handle_events(&mut app, &events, &mut |ctx| myapp1.ui(ctx));
+                    layer_surface_app.handle_events(&mut app, &events, &mut |ctx| myapp2.ui(ctx));
+                } // Handle other events here
+            }
+        }
     }
 }

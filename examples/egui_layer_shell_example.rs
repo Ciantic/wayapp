@@ -126,10 +126,21 @@ impl EguiApp {
     }
 }
 
+enum AppEvent {
+    WaylandDispatch(DispatchToken),
+    // Other events can be added here
+}
+
 fn main() {
     unsafe { std::env::set_var("RUST_LOG", "wayapp=trace") };
     env_logger::init();
-    let mut app = Application::new(|| {});
+
+    // Create channel for external events
+    let (tx, rx) = std::sync::mpsc::channel::<AppEvent>();
+
+    let mut app = Application::new(move |t| {
+        let _ = tx.send(AppEvent::WaylandDispatch(t));
+    });
 
     // Example layer surface --------------------------
     let layer_surface = app.layer_shell.create_layer_surface(
@@ -148,13 +159,16 @@ fn main() {
     let mut egui_surface = EguiSurfaceState::new(&app, &layer_surface, 512, 512);
 
     // Run the Wayland event loop
-    let mut event_queue = app.event_queue.take().unwrap();
-    loop {
-        event_queue
-            .blocking_dispatch(&mut app)
-            .expect("Wayland dispatch failed");
+    app.run_dispatcher();
 
-        let events = app.take_wayland_events();
-        egui_surface.handle_events(&mut app, &events, &mut |ctx| my_app.ui(ctx));
+    loop {
+        if let Ok(event) = rx.recv() {
+            match event {
+                AppEvent::WaylandDispatch(token) => {
+                    let events = app.dispatch_pending(token);
+                    egui_surface.handle_events(&mut app, &events, &mut |ctx| my_app.ui(ctx));
+                } // Handle other events here
+            }
+        }
     }
 }

@@ -47,10 +47,21 @@ impl EguiApp {
     }
 }
 
+enum AppEvent {
+    WaylandDispatch(DispatchToken),
+    // Other events can be added here
+}
+
 fn main() {
     unsafe { std::env::set_var("RUST_LOG", "wayapp=trace") };
     env_logger::init();
-    let mut app = Application::new(|| {});
+
+    // Create channel for external events
+    let (tx, rx) = std::sync::mpsc::channel::<AppEvent>();
+
+    let mut app = Application::new(move |t| {
+        let _ = tx.send(AppEvent::WaylandDispatch(t));
+    });
     let mut myapp1 = EguiApp::new();
 
     // Example window --------------------------
@@ -63,30 +74,30 @@ fn main() {
     example_window.set_app_id("io.github.ciantic.wayapp.ExampleWindow");
     example_window.commit();
 
-    let mut example_window_app = Some(EguiSurfaceState::new(&app, example_window, 256, 256));
+    let mut example_window_app = Some(EguiSurfaceState::new(&app, &example_window, 256, 256));
 
     // Run the Wayland event loop
-    let mut event_queue = app.event_queue.take().unwrap();
+    app.run_dispatcher();
+
     loop {
-        event_queue
-            .blocking_dispatch(&mut app)
-            .expect("Wayland dispatch failed");
+        if let Ok(event) = rx.recv() {
+            match event {
+                AppEvent::WaylandDispatch(token) => {
+                    let events = app.dispatch_pending(token);
+                    example_window_app.handle_events(&mut app, &events, &mut |ctx| myapp1.ui(ctx));
 
-        // Handle Wayland events for the example window
-        let events = app.take_wayland_events();
-        example_window_app.handle_events(&mut app, &events, &mut |ctx| myapp1.ui(ctx));
+                    // Handle close requests
+                    for event in &events {
+                        if let WaylandEvent::WindowRequestClose(win) = event {
+                            println!("Example window close requested, exiting...");
 
-        // Handle close requests
-        for event in &events {
-            if let WaylandEvent::WindowRequestClose(win) = event {
-                println!("Example window close requested, exiting...");
-
-                // example_window_app.take_if(|v| v.contains(win));
-
-                if example_window_app.contains(win) {
-                    example_window_app.take();
-                }
-                return;
+                            if example_window_app.contains(win) {
+                                example_window_app.take();
+                            }
+                            return;
+                        }
+                    }
+                } // Handle other events here
             }
         }
     }

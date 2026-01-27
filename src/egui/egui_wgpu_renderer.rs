@@ -16,7 +16,6 @@ use raw_window_handle::WaylandWindowHandle;
 use std::ptr::NonNull;
 use wayland_client::Connection;
 use wayland_client::Proxy;
-use wayland_client::QueueHandle;
 use wayland_client::protocol::wl_surface::WlSurface;
 
 pub struct EguiWgpuRenderer {

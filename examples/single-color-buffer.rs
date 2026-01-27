@@ -7,10 +7,21 @@ use smithay_client_toolkit::shell::xdg::popup::Popup;
 use smithay_client_toolkit::shell::xdg::window::WindowDecorations;
 use wayapp::*;
 
+enum AppEvent {
+    WaylandDispatch(DispatchToken),
+    // Other events can be added here
+}
+
 fn main() {
     unsafe { std::env::set_var("RUST_LOG", "wayapp=trace") };
     env_logger::init();
-    let mut app = Application::new(|| {});
+
+    // Create channel for external events
+    let (tx, rx) = std::sync::mpsc::channel::<AppEvent>();
+
+    let mut app = Application::new(move |t| {
+        let _ = tx.send(AppEvent::WaylandDispatch(t));
+    });
 
     let surface1 = app.compositor_state.create_surface(&app.qh);
     let example_layer_surface =
@@ -99,16 +110,20 @@ fn main() {
     let mut popup_state = SingleColorState::new(&popup, (255, 255, 0), 50, 20);
 
     // Run the Wayland event loop. This example will run until the process is killed
-    let mut event_queue = app.event_queue.take().unwrap();
+    app.run_dispatcher();
+
     loop {
-        event_queue
-            .blocking_dispatch(&mut app)
-            .expect("Wayland dispatch failed");
-        let events = app.take_wayland_events();
-        example_layer_state.handle_events(&mut app, &events);
-        example_layer_state2.handle_events(&mut app, &events);
-        example_window_state.handle_events(&mut app, &events);
-        child_window_state.handle_events(&mut app, &events);
-        popup_state.handle_events(&mut app, &events);
+        if let Ok(event) = rx.recv() {
+            match event {
+                AppEvent::WaylandDispatch(token) => {
+                    let events = app.dispatch_pending(token);
+                    example_layer_state.handle_events(&mut app, &events);
+                    example_layer_state2.handle_events(&mut app, &events);
+                    example_window_state.handle_events(&mut app, &events);
+                    child_window_state.handle_events(&mut app, &events);
+                    popup_state.handle_events(&mut app, &events);
+                } // Handle other events here
+            }
+        }
     }
 }

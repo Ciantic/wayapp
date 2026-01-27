@@ -144,7 +144,7 @@ impl WaylandEventEmitter {
 pub struct Application {
     wayland_events: Arc<Mutex<Vec<WaylandEvent>>>,
     pub conn: Connection,
-    pub event_queue: Option<EventQueue<Self>>,
+    event_queue: Option<EventQueue<Self>>,
     pub qh: QueueHandle<Self>,
     pub registry_state: RegistryState,
     pub seat_state: SeatState,
@@ -246,21 +246,6 @@ impl Application {
                         .get_shape_device(pointer, &self.qh)
                 });
             device.set_shape(serial, shape);
-        }
-    }
-
-    /// Blocking way to run the Wayland event loop
-    ///
-    /// For tokio or other async uses see `run_dispatcher` method.
-    ///
-    /// This may panic if the event queue has already been taken.
-    pub fn run_blocking(&mut self) {
-        // Run the Wayland event loop. This example will run until the process is killed
-        let mut event_queue = self.event_queue.take().expect("Event queue already used");
-        loop {
-            event_queue
-                .blocking_dispatch(self)
-                .expect("Wayland dispatch failed");
         }
     }
 

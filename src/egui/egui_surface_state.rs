@@ -14,7 +14,6 @@ use crate::WaylandToEguiInput;
 use crate::egui_to_cursor_shape;
 use egui::Context;
 use egui::CursorIcon;
-use egui::FullOutput;
 use log::trace;
 use smithay_client_toolkit::seat::keyboard::KeyEvent;
 use smithay_client_toolkit::seat::keyboard::Modifiers as WaylandModifiers;
@@ -23,8 +22,6 @@ use smithay_clipboard::Clipboard;
 use std::num::NonZero;
 use std::ops::Deref;
 use std::ops::DerefMut;
-use std::time::Duration;
-use std::time::Instant;
 use wayland_client::Proxy;
 use wayland_client::protocol::wl_surface::WlSurface;
 use wayland_protocols::wp::viewporter::client::wp_viewport::WpViewport;
@@ -43,10 +40,10 @@ pub struct EguiSurfaceState<T: Into<Kind> + Clone> {
     height: u32, // WGPU Surface height in logical pixels
     scale_factor: i32,
     last_cursor_icon: Option<CursorIcon>,
-    last_buffer_update: Option<Instant>,
     last_fulloutput: Option<egui::FullOutput>,
     has_keyboard_focus: bool,
     egui_context: Context,
+    #[allow(dead_code)]
     egui_frame_scheduler: EguiFrameScheduler,
 }
 
@@ -73,7 +70,6 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
             height,
             scale_factor: 1,
             last_cursor_icon: None,
-            last_buffer_update: None,
             last_fulloutput: None,
             has_keyboard_focus: false,
             egui_context,
