@@ -63,6 +63,9 @@ impl EguiApp {
 
             ui.label("This is a simple EGUI app running on Wayland via Smithay toolkit!");
         });
+
+        // For continuous rendering:
+        // ctx.request_repaint();
     }
 }
 

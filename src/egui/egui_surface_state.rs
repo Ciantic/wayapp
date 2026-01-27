@@ -13,7 +13,6 @@ use crate::WaylandEvent;
 use crate::WaylandToEguiInput;
 use crate::egui_to_cursor_shape;
 use egui::Context;
-use egui::CursorIcon;
 use log::trace;
 use smithay_client_toolkit::seat::keyboard::KeyEvent;
 use smithay_client_toolkit::seat::keyboard::Modifiers as WaylandModifiers;
@@ -40,7 +39,6 @@ pub struct EguiSurfaceState<T: Into<Kind> + Clone> {
     width: u32,  // WGPU Surface width in logical pixels
     height: u32, // WGPU Surface height in logical pixels
     scale_factor: i32,
-    last_cursor_icon: Option<CursorIcon>,
     last_fulloutput: Option<egui::FullOutput>,
     frame_timings: Option<(Instant, Instant)>,
     has_keyboard_focus: bool,
@@ -72,7 +70,6 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
             width,
             height,
             scale_factor: 1,
-            last_cursor_icon: None,
             last_fulloutput: None,
             frame_timings: None,
             has_keyboard_focus: false,
@@ -160,11 +157,10 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
             self.input_state.handle_output_command(command);
         }
         if let Some(last_fulloutput) = &mut self.last_fulloutput {
-            last_fulloutput.append(full_output.clone());
+            last_fulloutput.append(full_output);
         } else {
-            self.last_fulloutput = Some(full_output.clone());
+            self.last_fulloutput = Some(full_output);
         }
-        self.last_cursor_icon = Some(full_output.platform_output.cursor_icon);
     }
 
     /// Render the last processed EGUI frame to WGPU
@@ -251,9 +247,6 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
                 }
                 WaylandEvent::Frame(_, _) => {
                     self.render(ui);
-                    if let Some(cursor) = self.last_cursor_icon {
-                        app.set_cursor(egui_to_cursor_shape(cursor));
-                    }
                 }
                 WaylandEvent::ScaleFactorChanged(_, factor) => {
                     self.scale_factor_changed(*factor);
@@ -267,6 +260,13 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
                         kind: event_kind.clone(),
                     });
                     self.process_egui_frame(ui);
+                    if let Some(cursor) = self
+                        .last_fulloutput
+                        .as_ref()
+                        .map(|o| o.platform_output.cursor_icon)
+                    {
+                        app.set_cursor(egui_to_cursor_shape(cursor));
+                    }
                 }
                 WaylandEvent::KeyboardEnter(_, _serials, _keysyms) => {
                     self.handle_keyboard_enter();
