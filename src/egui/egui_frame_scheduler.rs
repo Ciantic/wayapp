@@ -41,7 +41,7 @@ impl EguiFrameScheduler {
         let wl_surface = Arc::new(wl_surface);
 
         context.set_request_repaint_callback(move |info| {
-            let min_delay = std::time::Duration::from_millis(16); // ~60 FPS
+            let min_delay = std::time::Duration::from_nanos(16_666_666); // ~60 FPS
             let delay = if info.delay < min_delay {
                 min_delay
             } else {
