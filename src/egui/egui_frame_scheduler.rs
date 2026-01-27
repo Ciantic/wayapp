@@ -79,6 +79,10 @@ impl EguiFrameScheduler {
                         if now >= deadline {
                             // Deadline has passed, emit the event
                             drop(next);
+
+                            // Note: Using wl_surface.frame(), wl_surface.commit(), conn.flush()
+                            // caused crashes with WGPU handling, so I created a way to emit Frame
+                            // event without Wayland dispatching.
                             event_emitter.emit_events(vec![crate::WaylandEvent::Frame(
                                 wl_surface.clone(),
                                 0,
