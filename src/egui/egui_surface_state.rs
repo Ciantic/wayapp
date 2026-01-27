@@ -4,6 +4,7 @@
 //! following the pattern from single_color.rs
 
 use crate::Application;
+use crate::EguiFrameScheduler;
 use crate::EguiWgpuRenderer;
 #[allow(unused_imports)]
 use crate::EguiWgpuRendererThread;
@@ -45,6 +46,7 @@ pub struct EguiSurfaceState<T: Into<Kind> + Clone> {
     last_buffer_update: Option<Instant>,
     has_keyboard_focus: bool,
     egui_context: Context,
+    egui_frame_scheduler: EguiFrameScheduler,
 }
 
 impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
@@ -55,6 +57,8 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
         let renderer = EguiWgpuRenderer::new(&egui_context, wl_surface, &app.qh, &app.conn);
         let clipboard = unsafe { Clipboard::new(app.conn.display().id().as_ptr() as *mut _) };
         let input_state = WaylandToEguiInput::new(clipboard);
+        let egui_frame_scheduler =
+            EguiFrameScheduler::new(&egui_context, app.get_event_emitter(), wl_surface.clone());
 
         Self {
             viewport: None,
@@ -71,6 +75,7 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
             last_buffer_update: None,
             has_keyboard_focus: false,
             egui_context,
+            egui_frame_scheduler,
         }
     }
 

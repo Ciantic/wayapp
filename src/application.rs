@@ -129,7 +129,7 @@ impl WaylandEvent {
 /// External dispatcher for emitting Wayland events from outside the application
 #[derive(Clone)]
 pub struct WaylandEventEmitter {
-    dispatch_fn: Arc<dyn Fn() + Send + Sync + 'static>,
+    dispatch_fn: Arc<dyn Fn(DispatchToken) + Send + Sync + 'static>,
     events: Arc<Mutex<Vec<WaylandEvent>>>,
 }
 
@@ -137,7 +137,7 @@ impl WaylandEventEmitter {
     /// Emit events to the application
     pub fn emit_events(&self, events: Vec<WaylandEvent>) {
         self.events.lock().unwrap().extend(events);
-        (self.dispatch_fn)();
+        (self.dispatch_fn)(DispatchToken::external());
     }
 }
 
@@ -162,12 +162,12 @@ pub struct Application {
     pointer_shape_devices: HashMap<ObjectId, WpCursorShapeDeviceV1>,
     keyboard_focused_surface: Option<ObjectId>,
     dispatcher: Option<InternalDispatcherThread>,
-    dispatch_fn: Arc<dyn Fn() + Send + Sync + 'static>,
+    dispatch_fn: Arc<dyn Fn(DispatchToken) + Send + Sync + 'static>,
 }
 
 impl Application {
     /// Create a new Application, initializing all Wayland globals and state.
-    pub fn new<T: Fn() + Send + Sync + 'static>(dispatch_fn: T) -> Self {
+    pub fn new<T: Fn(DispatchToken) + Send + Sync + 'static>(dispatch_fn: T) -> Self {
         let conn = Connection::connect_to_env().expect("Failed to connect to Wayland");
         let (globals, event_queue) =
             registry_queue_init::<Self>(&conn).expect("Failed to init registry");
@@ -284,14 +284,42 @@ impl Application {
     /// Dispatch pending events, and return collected Wayland events
     ///
     /// Used with `run_dispatcher` method, when dispatch_fn is signaled
-    pub fn dispatch_pending(&mut self) -> Vec<WaylandEvent> {
-        if let Some(mut dispatcher) = self.dispatcher.take() {
-            let res = dispatcher.dispatch_pending(self);
-            self.dispatcher = Some(dispatcher);
-            res
+    pub fn dispatch_pending(&mut self, token: DispatchToken) -> Vec<WaylandEvent> {
+        // Two types of WaylandEvent sources:
+        // 1. External events emitted via WaylandEventEmitter (they don't need to
+        //    trigger dispatching)
+        // 2. Events coming from Wayland connection
+        if !token.from_wayland() {
+            self.wayland_events.lock().unwrap().drain(..).collect()
         } else {
-            panic!("Dispatcher not running, call run_dispatcher first");
+            if let Some(mut dispatcher) = self.dispatcher.take() {
+                let res = dispatcher.dispatch_pending(self);
+                self.dispatcher = Some(dispatcher);
+                res
+            } else {
+                panic!("Dispatcher not running, call run_dispatcher first");
+            }
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+pub struct DispatchToken(bool);
+
+impl DispatchToken {
+    /// Create a token indicating dispatch from Wayland connection
+    pub(crate) fn wayland() -> Self {
+        DispatchToken(true)
+    }
+
+    /// Create a token indicating external dispatch
+    pub(crate) fn external() -> Self {
+        DispatchToken(false)
+    }
+
+    /// Check if the dispatch is from Wayland connection
+    fn from_wayland(&self) -> bool {
+        self.0
     }
 }
 
@@ -315,7 +343,7 @@ struct InternalDispatcherThread {
     event_queue: EventQueue<Application>,
     count_reader: Option<std::sync::mpsc::Receiver<Option<usize>>>,
     count_sender: std::sync::mpsc::Sender<Option<usize>>,
-    dispatch_fn: Option<Arc<dyn Fn() + Sync + Send + 'static>>,
+    dispatch_fn: Option<Arc<dyn Fn(DispatchToken) + Sync + Send + 'static>>,
     #[allow(dead_code)]
     reader_thread: Option<JoinHandle<()>>,
 }
@@ -324,7 +352,7 @@ impl InternalDispatcherThread {
     fn new(
         conn: Connection,
         event_queue: EventQueue<Application>,
-        dispatch_fn: Arc<dyn Fn() + Sync + Send + 'static>,
+        dispatch_fn: Arc<dyn Fn(DispatchToken) + Sync + Send + 'static>,
     ) -> Self {
         let (count_sender, count_reader) = std::sync::mpsc::channel::<Option<usize>>();
         InternalDispatcherThread {
@@ -337,14 +365,6 @@ impl InternalDispatcherThread {
         }
     }
 
-    /// Get the dispatch function
-    pub(crate) fn get_dispatch_fn(&self) -> Arc<dyn Fn() + Sync + Send + 'static> {
-        self.dispatch_fn
-            .as_ref()
-            .expect("Dispatch function missing")
-            .clone()
-    }
-
     /// Start the blocking reading thread
     pub(crate) fn start_thread(&mut self) {
         let count_reader = self.count_reader.take().expect("Count reader missing");
@@ -353,7 +373,7 @@ impl InternalDispatcherThread {
 
         self.reader_thread = Some(std::thread::spawn(move || {
             // Initial trigger dispatching
-            (dispatch_fn)();
+            (dispatch_fn)(DispatchToken::wayland());
 
             loop {
                 match InternalDispatcherThread::read_blocking(&conn, &dispatch_fn, &count_reader) {
@@ -380,14 +400,14 @@ impl InternalDispatcherThread {
     #[inline]
     fn read_blocking(
         conn: &Connection,
-        dispatch_fn: &Arc<dyn Fn() + Sync + Send + 'static>,
+        dispatch_fn: &Arc<dyn Fn(DispatchToken) + Sync + Send + 'static>,
         count_reader: &std::sync::mpsc::Receiver<Option<usize>>,
     ) -> Result<bool, InternalDispatcherError> {
         // Implementation follows `EventQueue::blocking_dispatch` logic
         match count_reader.recv()? {
             Some(count) => {
                 if count > 0 {
-                    (dispatch_fn)();
+                    (dispatch_fn)(DispatchToken::wayland());
                     return Ok(true);
                 }
             }
@@ -405,7 +425,7 @@ impl InternalDispatcherThread {
             println!("♦️♦️♦️♦️♦️ Failed to read");
         }
 
-        (dispatch_fn)();
+        (dispatch_fn)(DispatchToken::wayland());
         Ok(true) // Continue
     }
 

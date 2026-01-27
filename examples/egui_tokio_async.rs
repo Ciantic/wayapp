@@ -53,7 +53,7 @@ impl EguiApp {
 
 #[derive(Debug)]
 enum AppEvent {
-    WaylandDispatch,
+    WaylandDispatch(DispatchToken),
     TimerTick(u32),
 }
 
@@ -68,7 +68,7 @@ async fn main() {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AppEvent>();
     let tx_clone = tx.clone();
 
-    let mut app = Application::new(move || tx_clone.send(AppEvent::WaylandDispatch).unwrap());
+    let mut app = Application::new(move |t| tx_clone.send(AppEvent::WaylandDispatch(t)).unwrap());
     let mut myapp1 = EguiApp::new();
     let mut myapp2 = EguiApp::new();
 
@@ -116,8 +116,8 @@ async fn main() {
                         std::thread::current().id()
                     );
                 }
-                AppEvent::WaylandDispatch => {
-                    let events = app.dispatch_pending();
+                AppEvent::WaylandDispatch(token) => {
+                    let events = app.dispatch_pending(token);
                     example_window_app.handle_events(&mut app, &events, &mut |ctx| myapp1.ui(ctx));
                     layer_surface_app.handle_events(&mut app, &events, &mut |ctx| myapp2.ui(ctx));
                 }
