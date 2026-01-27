@@ -129,7 +129,7 @@ impl EguiApp {
 fn main() {
     unsafe { std::env::set_var("RUST_LOG", "wayapp=trace") };
     env_logger::init();
-    let mut app = Application::new();
+    let mut app = Application::new(|| {});
 
     // Example layer surface --------------------------
     let layer_surface = app.layer_shell.create_layer_surface(

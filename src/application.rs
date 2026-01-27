@@ -52,6 +52,7 @@ use smithay_client_toolkit::subcompositor::SubcompositorState;
 use smithay_clipboard::Clipboard;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::thread::JoinHandle;
 use wayland_backend::client::ObjectId;
 use wayland_backend::client::WaylandError;
@@ -125,8 +126,23 @@ impl WaylandEvent {
     }
 }
 
+/// External dispatcher for emitting Wayland events from outside the application
+#[derive(Clone)]
+pub struct WaylandEventEmitter {
+    dispatch_fn: Arc<dyn Fn() + Send + Sync + 'static>,
+    events: Arc<Mutex<Vec<WaylandEvent>>>,
+}
+
+impl WaylandEventEmitter {
+    /// Emit events to the application
+    pub fn emit_events(&self, events: Vec<WaylandEvent>) {
+        self.events.lock().unwrap().extend(events);
+        (self.dispatch_fn)();
+    }
+}
+
 pub struct Application {
-    wayland_events: Vec<WaylandEvent>,
+    wayland_events: Arc<Mutex<Vec<WaylandEvent>>>,
     pub conn: Connection,
     pub event_queue: Option<EventQueue<Self>>,
     pub qh: QueueHandle<Self>,
@@ -146,11 +162,12 @@ pub struct Application {
     pointer_shape_devices: HashMap<ObjectId, WpCursorShapeDeviceV1>,
     keyboard_focused_surface: Option<ObjectId>,
     dispatcher: Option<InternalDispatcherThread>,
+    dispatch_fn: Arc<dyn Fn() + Send + Sync + 'static>,
 }
 
 impl Application {
     /// Create a new Application, initializing all Wayland globals and state.
-    pub fn new() -> Self {
+    pub fn new<T: Fn() + Send + Sync + 'static>(dispatch_fn: T) -> Self {
         let conn = Connection::connect_to_env().expect("Failed to connect to Wayland");
         let (globals, event_queue) =
             registry_queue_init::<Self>(&conn).expect("Failed to init registry");
@@ -172,7 +189,7 @@ impl Application {
         let clipboard = unsafe { Clipboard::new(conn.display().id().as_ptr() as *mut _) };
 
         Self {
-            wayland_events: Vec::new(),
+            wayland_events: Arc::new(Mutex::new(Vec::new())),
             event_queue: Some(event_queue),
             conn,
             qh: qh.clone(),
@@ -192,11 +209,24 @@ impl Application {
             pointer_shape_devices: HashMap::new(),
             keyboard_focused_surface: None,
             dispatcher: None,
+            dispatch_fn: Arc::new(dispatch_fn),
         }
     }
 
     pub fn take_wayland_events(&mut self) -> Vec<WaylandEvent> {
-        self.wayland_events.drain(..).collect()
+        let mut events = self.wayland_events.lock().unwrap();
+        events.drain(..).collect()
+    }
+
+    pub fn get_event_emitter(&self) -> WaylandEventEmitter {
+        WaylandEventEmitter {
+            dispatch_fn: self.dispatch_fn.clone(),
+            events: self.wayland_events.clone(),
+        }
+    }
+
+    fn push_wayland_event(&self, event: WaylandEvent) {
+        self.wayland_events.lock().unwrap().push(event);
     }
 
     pub fn set_cursor(&mut self, shape: Shape) {
@@ -242,22 +272,13 @@ impl Application {
     /// See egui_tokio_async.rs example for usage.
     ///
     /// This may panic if the event queue has already been taken.
-    pub fn run_dispatcher<T: Fn() + Send + Sync + 'static>(&mut self, dispatch_fn: T) {
+    pub fn run_dispatcher(&mut self) {
         let event_queue = self.event_queue.take().expect("Event queue already used");
+        let dispatch_fn = self.dispatch_fn.clone();
         let mut dispatcher =
             InternalDispatcherThread::new(self.conn.clone(), event_queue, dispatch_fn);
         dispatcher.start_thread();
         self.dispatcher = Some(dispatcher);
-    }
-
-    /// Dispatch fake Wayland events, and call the dispatch function
-    ///
-    /// For instance scheduled frames can be dispatched this way.
-    pub fn fake_dispatch_events(&mut self, events: Vec<WaylandEvent>) {
-        self.wayland_events.extend(events);
-        if let Some(dispatcher) = &mut self.dispatcher {
-            dispatcher.get_dispatch_fn()();
-        }
     }
 
     /// Dispatch pending events, and return collected Wayland events
@@ -300,10 +321,10 @@ struct InternalDispatcherThread {
 }
 
 impl InternalDispatcherThread {
-    fn new<T: Fn() + Sync + Send + 'static>(
+    fn new(
         conn: Connection,
         event_queue: EventQueue<Application>,
-        dispatch_fn: T,
+        dispatch_fn: Arc<dyn Fn() + Sync + Send + 'static>,
     ) -> Self {
         let (count_sender, count_reader) = std::sync::mpsc::channel::<Option<usize>>();
         InternalDispatcherThread {
@@ -311,7 +332,7 @@ impl InternalDispatcherThread {
             event_queue,
             count_sender,
             count_reader: Some(count_reader),
-            dispatch_fn: Some(Arc::new(dispatch_fn)),
+            dispatch_fn: Some(dispatch_fn),
             reader_thread: None,
         }
     }
@@ -421,7 +442,7 @@ impl CompositorHandler for Application {
         surface: &WlSurface,
         new_factor: i32,
     ) {
-        self.wayland_events.push(WaylandEvent::ScaleFactorChanged(
+        self.push_wayland_event(WaylandEvent::ScaleFactorChanged(
             surface.clone(),
             new_factor,
         ));
@@ -434,8 +455,7 @@ impl CompositorHandler for Application {
         surface: &WlSurface,
         _new_transform: wl_output::Transform,
     ) {
-        self.wayland_events
-            .push(WaylandEvent::TransformChanged(surface.clone()));
+        self.push_wayland_event(WaylandEvent::TransformChanged(surface.clone()));
     }
 
     fn frame(
@@ -445,8 +465,7 @@ impl CompositorHandler for Application {
         surface: &WlSurface,
         time: u32,
     ) {
-        self.wayland_events
-            .push(WaylandEvent::Frame(surface.clone(), time));
+        self.push_wayland_event(WaylandEvent::Frame(surface.clone(), time));
     }
 
     fn surface_enter(
@@ -456,7 +475,7 @@ impl CompositorHandler for Application {
         surface: &WlSurface,
         output: &WlOutput,
     ) {
-        self.wayland_events.push(WaylandEvent::SurfaceEnteredOutput(
+        self.push_wayland_event(WaylandEvent::SurfaceEnteredOutput(
             surface.clone(),
             output.clone(),
         ));
@@ -469,7 +488,7 @@ impl CompositorHandler for Application {
         surface: &WlSurface,
         output: &WlOutput,
     ) {
-        self.wayland_events.push(WaylandEvent::SurfaceLeftOutput(
+        self.push_wayland_event(WaylandEvent::SurfaceLeftOutput(
             surface.clone(),
             output.clone(),
         ));
@@ -482,25 +501,21 @@ impl OutputHandler for Application {
     }
 
     fn new_output(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, output: WlOutput) {
-        self.wayland_events
-            .push(WaylandEvent::OutputCreated(output));
+        self.push_wayland_event(WaylandEvent::OutputCreated(output));
     }
 
     fn update_output(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, output: WlOutput) {
-        self.wayland_events
-            .push(WaylandEvent::OutputUpdated(output));
+        self.push_wayland_event(WaylandEvent::OutputUpdated(output));
     }
 
     fn output_destroyed(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, output: WlOutput) {
-        self.wayland_events
-            .push(WaylandEvent::OutputDestroyed(output));
+        self.push_wayland_event(WaylandEvent::OutputDestroyed(output));
     }
 }
 
 impl LayerShellHandler for Application {
     fn closed(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, target_layer: &LayerSurface) {
-        self.wayland_events
-            .push(WaylandEvent::LayerShellClosed(target_layer.clone()));
+        self.push_wayland_event(WaylandEvent::LayerShellClosed(target_layer.clone()));
     }
 
     fn configure(
@@ -511,7 +526,7 @@ impl LayerShellHandler for Application {
         configure: LayerSurfaceConfigure,
         _serial: u32,
     ) {
-        self.wayland_events.push(WaylandEvent::LayerShellConfigure(
+        self.push_wayland_event(WaylandEvent::LayerShellConfigure(
             target_layer.clone(),
             configure.clone(),
         ));
@@ -526,7 +541,7 @@ impl PopupHandler for Application {
         target_popup: &Popup,
         config: PopupConfigure,
     ) {
-        self.wayland_events.push(WaylandEvent::PopupConfigure(
+        self.push_wayland_event(WaylandEvent::PopupConfigure(
             target_popup.clone(),
             config.clone(),
         ));
@@ -535,8 +550,7 @@ impl PopupHandler for Application {
     }
 
     fn done(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, target_popup: &Popup) {
-        self.wayland_events
-            .push(WaylandEvent::PopupDone(target_popup.clone()));
+        self.push_wayland_event(WaylandEvent::PopupDone(target_popup.clone()));
 
         trace!("[COMMON] XDG popup done");
     }
@@ -545,8 +559,7 @@ impl PopupHandler for Application {
 impl WindowHandler for Application {
     fn request_close(&mut self, _: &Connection, _: &QueueHandle<Self>, target_window: &Window) {
         trace!("[COMMON] XDG window close requested");
-        self.wayland_events
-            .push(WaylandEvent::WindowRequestClose(target_window.clone()));
+        self.push_wayland_event(WaylandEvent::WindowRequestClose(target_window.clone()));
     }
 
     fn configure(
@@ -557,7 +570,7 @@ impl WindowHandler for Application {
         configure: WindowConfigure,
         _serial: u32,
     ) {
-        self.wayland_events.push(WaylandEvent::WindowConfigure(
+        self.push_wayland_event(WaylandEvent::WindowConfigure(
             target_window.clone(),
             configure.clone(),
         ));
@@ -584,7 +597,7 @@ impl PointerHandler for Application {
                 _ => {}
             }
 
-            self.wayland_events.push(WaylandEvent::PointerEvent((
+            self.push_wayland_event(WaylandEvent::PointerEvent((
                 event.surface.clone(),
                 event.position,
                 event.kind.clone(),
@@ -605,7 +618,7 @@ impl KeyboardHandler for Application {
         _keysyms: &[Keysym],
     ) {
         trace!("[MAIN] Keyboard focus gained on surface {:?}", surface.id());
-        self.wayland_events.push(WaylandEvent::KeyboardEnter(
+        self.push_wayland_event(WaylandEvent::KeyboardEnter(
             surface.clone(),
             _raw.to_vec(),
             _keysyms.to_vec(),
@@ -623,8 +636,7 @@ impl KeyboardHandler for Application {
         _serial: u32,
     ) {
         trace!("[MAIN] Keyboard focus lost");
-        self.wayland_events
-            .push(WaylandEvent::KeyboardLeave(surface.clone()));
+        self.push_wayland_event(WaylandEvent::KeyboardLeave(surface.clone()));
     }
 
     fn press_key(
@@ -636,8 +648,7 @@ impl KeyboardHandler for Application {
         event: KeyEvent,
     ) {
         trace!("[MAIN] Key pressed: keycode={}", event.raw_code);
-        self.wayland_events
-            .push(WaylandEvent::KeyPress(event.clone()));
+        self.push_wayland_event(WaylandEvent::KeyPress(event.clone()));
     }
 
     fn release_key(
@@ -649,8 +660,7 @@ impl KeyboardHandler for Application {
         event: KeyEvent,
     ) {
         trace!("[MAIN] Key released: keycode={}", event.raw_code);
-        self.wayland_events
-            .push(WaylandEvent::KeyRelease(event.clone()));
+        self.push_wayland_event(WaylandEvent::KeyRelease(event.clone()));
     }
 
     fn update_modifiers(
@@ -663,8 +673,7 @@ impl KeyboardHandler for Application {
         _raw_modifiers: smithay_client_toolkit::seat::keyboard::RawModifiers,
         _layout: u32,
     ) {
-        self.wayland_events
-            .push(WaylandEvent::ModifiersChanged(modifiers.clone()));
+        self.push_wayland_event(WaylandEvent::ModifiersChanged(modifiers.clone()));
     }
 
     fn repeat_key(
@@ -676,8 +685,7 @@ impl KeyboardHandler for Application {
         event: KeyEvent,
     ) {
         trace!("[MAIN] Key repeated: keycode={}", event.raw_code);
-        self.wayland_events
-            .push(WaylandEvent::KeyRepeat(event.clone()));
+        self.push_wayland_event(WaylandEvent::KeyRepeat(event.clone()));
     }
 }
 

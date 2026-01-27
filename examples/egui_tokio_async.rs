@@ -63,7 +63,12 @@ enum AppEvent {
 async fn main() {
     unsafe { std::env::set_var("RUST_LOG", "wayapp=trace") };
     env_logger::init();
-    let mut app = Application::new();
+
+    // Create channel for external events
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AppEvent>();
+    let tx_clone = tx.clone();
+
+    let mut app = Application::new(move || tx_clone.send(AppEvent::WaylandDispatch).unwrap());
     let mut myapp1 = EguiApp::new();
     let mut myapp2 = EguiApp::new();
 
@@ -98,12 +103,9 @@ async fn main() {
 
     let mut layer_surface_app = EguiSurfaceState::new(&app, &layer_surface, 256, 256);
 
-    // Create channel for external events
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<AppEvent>();
-
     spawn_ticking_thread(tx.clone());
 
-    app.run_dispatcher(move || tx.send(AppEvent::WaylandDispatch).unwrap());
+    app.run_dispatcher();
     loop {
         if let Some(event) = rx.recv().await {
             match event {

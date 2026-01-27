@@ -50,7 +50,7 @@ impl EguiApp {
 fn main() {
     unsafe { std::env::set_var("RUST_LOG", "wayapp=trace") };
     env_logger::init();
-    let mut app = Application::new();
+    let mut app = Application::new(|| {});
     let mut myapp1 = EguiApp::new();
 
     // Example window --------------------------

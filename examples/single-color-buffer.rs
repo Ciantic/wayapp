@@ -10,7 +10,7 @@ use wayapp::*;
 fn main() {
     unsafe { std::env::set_var("RUST_LOG", "wayapp=trace") };
     env_logger::init();
-    let mut app = Application::new();
+    let mut app = Application::new(|| {});
 
     let surface1 = app.compositor_state.create_surface(&app.qh);
     let example_layer_surface =
