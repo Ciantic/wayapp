@@ -4,10 +4,10 @@
 //! following the pattern from single_color.rs
 
 use crate::Application;
-use crate::EguiFrameScheduler;
 use crate::EguiWgpuRenderer;
 #[allow(unused_imports)]
 use crate::EguiWgpuRendererThread;
+use crate::FrameScheduler;
 use crate::Kind;
 use crate::WaylandEvent;
 use crate::WaylandToEguiInput;
@@ -21,6 +21,7 @@ use smithay_clipboard::Clipboard;
 use std::num::NonZero;
 use std::ops::Deref;
 use std::ops::DerefMut;
+use std::time::Duration;
 use std::time::Instant;
 use wayland_client::Proxy;
 use wayland_client::protocol::wl_surface::WlSurface;
@@ -43,9 +44,7 @@ pub struct EguiSurfaceState<T: Into<Kind> + Clone> {
     frame_timings: Option<(Instant, Instant)>,
     has_keyboard_focus: bool,
     egui_context: Context,
-
-    #[allow(dead_code)]
-    egui_frame_scheduler: EguiFrameScheduler,
+    frame_scheduler: FrameScheduler,
 }
 
 impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
@@ -56,8 +55,11 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
         let renderer = EguiWgpuRenderer::new(&egui_context, wl_surface, &app.conn);
         let clipboard = unsafe { Clipboard::new(app.conn.display().id().as_ptr() as *mut _) };
         let input_state = WaylandToEguiInput::new(clipboard);
-        let egui_frame_scheduler =
-            EguiFrameScheduler::new(&egui_context, app.get_event_emitter(), wl_surface.clone());
+        let frame_scheduler = FrameScheduler::new(app.get_event_emitter(), wl_surface.clone());
+        let frame_scheduler_fn = frame_scheduler.create_scheduler();
+        egui_context.set_request_repaint_callback(move |i| {
+            frame_scheduler_fn(i.delay);
+        });
 
         Self {
             viewport: None,
@@ -74,7 +76,7 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
             frame_timings: None,
             has_keyboard_focus: false,
             egui_context,
-            egui_frame_scheduler,
+            frame_scheduler,
         }
     }
 
@@ -140,10 +142,21 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
         self.scale_factor = factor;
     }
 
-    pub fn request_frame(&mut self, app: &mut Application) {
+    /// Request a frame via dispatching
+    ///
+    /// Strictly this wouldn't be necessary, as
+    /// `egui_frame_scheduler.schedule_frame` could be used. However, this
+    /// method can be used to break the FPS limit, and I wanted to break it
+    /// for the window resizing events at least for now.
+    fn request_dispatch_frame(&mut self, app: &mut Application) {
         self.wl_surface().frame(&app.qh, self.wl_surface().clone());
         self.wl_surface().commit();
         app.conn.flush().unwrap();
+    }
+
+    /// Request a frame via Frame scheduler
+    pub fn request_frame(&mut self) {
+        self.frame_scheduler.schedule_frame(Duration::ZERO);
     }
 
     /// Process EGUI frame (layout, input) without GPU rendering
@@ -229,21 +242,21 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
                         .get();
 
                     self.configure(app, width, height);
-                    self.request_frame(app);
+                    self.request_dispatch_frame(app);
                 }
                 WaylandEvent::LayerShellConfigure(_, config) => {
                     let width = config.new_size.0;
                     let height = config.new_size.1;
 
                     self.configure(app, width, height);
-                    self.request_frame(app);
+                    self.request_dispatch_frame(app);
                 }
                 WaylandEvent::PopupConfigure(_, config) => {
                     let width = config.width as u32;
                     let height = config.height as u32;
 
                     self.configure(app, width, height);
-                    self.request_frame(app);
+                    self.request_dispatch_frame(app);
                 }
                 WaylandEvent::Frame(_, _) => {
                     self.render(ui);
@@ -251,7 +264,7 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
                 WaylandEvent::ScaleFactorChanged(_, factor) => {
                     self.scale_factor_changed(*factor);
                     self.process_egui_frame(ui);
-                    self.request_frame(app);
+                    self.request_frame();
                 }
                 WaylandEvent::PointerEvent((surface, position, event_kind)) => {
                     self.handle_pointer_event(&PointerEvent {

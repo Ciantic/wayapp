@@ -1,57 +1,35 @@
 use crate::WaylandEventEmitter;
-use egui::Context;
 use std::sync::Arc;
 use std::sync::Condvar;
 use std::sync::Mutex;
+use std::time::Duration;
 use std::time::Instant;
 
 /// Schedules frame updates based on egui's repaint requests.
-pub(crate) struct EguiFrameScheduler {
+pub(crate) struct FrameScheduler {
     #[allow(dead_code)]
     thread: std::thread::JoinHandle<()>,
+    next_frame_time: Arc<Mutex<Option<Instant>>>,
+    frame_time_changed: Arc<Condvar>,
 }
 
-impl EguiFrameScheduler {
+impl FrameScheduler {
     pub fn new(
-        context: &Context,
         event_emitter: WaylandEventEmitter,
         wl_surface: wayland_client::protocol::wl_surface::WlSurface,
     ) -> Self {
         let next_frame_time = Arc::new(Mutex::new(None::<Instant>));
         let frame_time_changed = Arc::new(Condvar::new());
-        let next_frame_time_clone = next_frame_time.clone();
-        let frame_time_changed_clone = frame_time_changed.clone();
+        let next_frame_time_thread = next_frame_time.clone();
+        let frame_time_changed_thread = frame_time_changed.clone();
 
-        context.set_request_repaint_callback(move |info| {
-            let min_delay = std::time::Duration::from_nanos(16_666_666); // ~60 FPS
-            let delay = if info.delay < min_delay {
-                min_delay
-            } else {
-                info.delay
-            };
-            let deadline = Instant::now() + delay;
-            let mut next = next_frame_time_clone.lock().unwrap();
-            let should_notify = match *next {
-                None => true,
-                Some(prev) => deadline < prev,
-            };
-            *next = Some(match *next {
-                None => deadline,
-                Some(prev) => prev.min(deadline),
-            });
-            drop(next);
-            if should_notify {
-                frame_time_changed_clone.notify_all();
-            }
-        });
-
-        EguiFrameScheduler {
+        FrameScheduler {
             thread: std::thread::spawn(move || {
                 loop {
-                    let mut next = next_frame_time.lock().unwrap();
+                    let mut next = next_frame_time_thread.lock().unwrap();
 
                     // Wait for a frame time to be set
-                    next = frame_time_changed
+                    next = frame_time_changed_thread
                         .wait_while(next, |next| next.is_none())
                         .unwrap();
 
@@ -72,7 +50,7 @@ impl EguiFrameScheduler {
                             )]);
 
                             // Clear the frame time after emitting
-                            let mut next = next_frame_time.lock().unwrap();
+                            let mut next = next_frame_time_thread.lock().unwrap();
                             *next = None;
                             break;
                         }
@@ -80,7 +58,9 @@ impl EguiFrameScheduler {
                         // Sleep with timeout until deadline, but wake if notified of earlier
                         // deadline
                         let timeout = deadline - now;
-                        let (new_next, _) = frame_time_changed.wait_timeout(next, timeout).unwrap();
+                        let (new_next, _) = frame_time_changed_thread
+                            .wait_timeout(next, timeout)
+                            .unwrap();
                         next = new_next;
 
                         // Check if a new earlier deadline was set
@@ -93,6 +73,46 @@ impl EguiFrameScheduler {
                     }
                 }
             }),
+            next_frame_time,
+            frame_time_changed,
         }
+    }
+
+    pub fn create_scheduler(&self) -> impl Fn(Duration) + Send + Sync + 'static {
+        let next_frame_time = self.next_frame_time.clone();
+        let frame_time_changed = self.frame_time_changed.clone();
+        move |delay: Duration| {
+            Self::schedule_frame_at(&next_frame_time, &frame_time_changed, delay);
+        }
+    }
+
+    /// Internal method to schedule a frame at a specific duration from now.
+    pub fn schedule_frame_at(
+        next_frame_time: &Arc<Mutex<Option<Instant>>>,
+        frame_time_changed: &Arc<Condvar>,
+        delay: Duration,
+    ) {
+        let min_delay = std::time::Duration::from_nanos(16_666_666); // ~60 FPS
+        let delay = if delay < min_delay { min_delay } else { delay };
+        let deadline = Instant::now() + delay;
+        let mut next = next_frame_time.lock().unwrap();
+        let should_notify = match *next {
+            None => true,
+            Some(prev) => deadline < prev,
+        };
+        *next = Some(match *next {
+            None => deadline,
+            Some(prev) => prev.min(deadline),
+        });
+        drop(next);
+        if should_notify {
+            frame_time_changed.notify_all();
+        }
+    }
+
+    /// Schedule a frame update at the specified duration from now.
+    #[allow(dead_code)]
+    pub fn schedule_frame(&mut self, at: Duration) {
+        Self::schedule_frame_at(&self.next_frame_time, &self.frame_time_changed, at);
     }
 }
