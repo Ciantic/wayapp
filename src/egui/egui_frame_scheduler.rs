@@ -6,23 +6,6 @@ use std::sync::Mutex;
 use std::time::Instant;
 
 /// Schedules frame updates based on egui's repaint requests.
-///
-/// This scheduler manages the timing of frame emissions to the application's
-/// event loop. It monitors egui's repaint requests through a callback, tracking
-/// the earliest deadline across multiple repaint requests. When the deadline is
-/// reached, it emits a `Frame` event to trigger the application to render the
-/// next frame.
-///
-/// The scheduler runs in a separate thread that:
-/// 1. Waits for repaint requests to set a frame deadline using `wait_while`
-/// 2. Waits with timeout until that deadline arrives, waking early if a new
-///    earlier deadline is set
-/// 3. Emits a `Frame` event when the deadline passes
-/// 4. Clears the deadline and loops back to wait for the next one
-///
-/// This design ensures that if multiple repaint requests come in with different
-/// delays, the scheduler will always respect the earliest deadline and can
-/// interrupt its wait if an earlier deadline is requested.
 pub(crate) struct EguiFrameScheduler {
     #[allow(dead_code)]
     thread: std::thread::JoinHandle<()>,
