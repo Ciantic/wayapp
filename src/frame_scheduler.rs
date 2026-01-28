@@ -45,6 +45,10 @@ impl FrameScheduler {
                     let (new_next, _) = frame_time_changed_thread
                         .wait_timeout(next, timeout)
                         .unwrap();
+
+                    // Either timeout expired or a new earlier frame time was set, check on next
+                    // iteration which one it was
+
                     next = new_next;
                 }
             }),
