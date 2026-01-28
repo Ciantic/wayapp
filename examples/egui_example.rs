@@ -13,6 +13,7 @@ struct EguiApp {
     text: String,
     fps: f32,
     last_render: Instant,
+    show_spinner: bool,
 }
 
 impl EguiApp {
@@ -22,6 +23,7 @@ impl EguiApp {
             counter: 0,
             text: "Hello from EGUI!".into(),
             last_render: Instant::now(),
+            show_spinner: false,
         }
     }
 
@@ -61,7 +63,13 @@ impl EguiApp {
 
             ui.separator();
 
-            ui.label("This is a simple EGUI app running on Wayland via Smithay toolkit!");
+            if ui.button("Toggle Spinner").clicked() {
+                self.show_spinner = !self.show_spinner;
+            }
+
+            if self.show_spinner {
+                ui.add(egui::Spinner::new());
+            }
         });
 
         // For continuous rendering:
@@ -103,7 +111,7 @@ fn main() {
     // example_window.set_min_size(Some((1, 1)));
     example_window.commit();
 
-    let mut example_window_app = EguiSurfaceState::new(&app, &example_window, 256, 256);
+    let mut example_window_app = EguiSurfaceState::new(&app, &example_window, 300, 300);
 
     // Example layer surface --------------------------
     let layer_surface = app.layer_shell.create_layer_surface(
@@ -134,18 +142,43 @@ fn main() {
     // Run the Wayland event loop
     app.run_dispatcher();
 
-    loop {
+    'main_loop: loop {
         if let Ok(event) = rx.recv() {
             match event {
                 AppEvent::WaylandDispatch(token) => {
+                    // Normal Wayland event dispatching to the windows and surfaces
                     let events = app.dispatch_pending(token);
                     example_window_app.handle_events(&mut app, &events, &mut |ctx| myapp1.ui(ctx));
                     layer_surface_app.handle_events(&mut app, &events, &mut |ctx| myapp2.ui(ctx));
+
+                    // Update FPS info
                     if let Some(last_render) = example_window_app.get_frame_timings() {
                         myapp1.set_last_render(last_render);
                     }
                     if let Some(last_render) = layer_surface_app.get_frame_timings() {
                         myapp2.set_last_render(last_render);
+                    }
+
+                    // Handle other Wayland events here if needed
+                    for event in events {
+                        match event {
+                            WaylandEvent::WindowRequestClose(_) => {
+                                break 'main_loop;
+                            }
+                            WaylandEvent::OutputCreated(_) => {
+                                // Monitor was added
+                                println!("Monitor added!");
+                            }
+                            WaylandEvent::OutputDestroyed(_) => {
+                                // Monitor was removed
+                                println!("Monitor removed!");
+                            }
+                            WaylandEvent::OutputUpdated(_) => {
+                                // Monitor was updated
+                                println!("Monitor updated!");
+                            }
+                            _ => {}
+                        }
                     }
                 } // Handle other events here
             }
