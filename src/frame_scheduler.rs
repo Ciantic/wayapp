@@ -42,14 +42,13 @@ impl FrameScheduler {
                     // Sleep with timeout until deadline, but wake if notified of earlier
                     // deadline
                     let timeout = deadline - now;
-                    let (new_next, _) = frame_time_changed_thread
+                    let _ = frame_time_changed_thread
                         .wait_timeout(next, timeout)
                         .unwrap();
 
-                    // Either timeout expired or a new earlier frame time was set, check on next
-                    // iteration which one it was
-
-                    next = new_next;
+                    // Either timeout expired or a new earlier frame time was
+                    // set, check on next iteration which
+                    // one it was
                 }
             }),
             next_frame_time,
