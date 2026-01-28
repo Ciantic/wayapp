@@ -4,43 +4,62 @@ use std::sync::Mutex;
 use std::time::Duration;
 use std::time::Instant;
 
+enum FrameSchedulerSignal {
+    NothingScheduled,
+    ScheduleFrameAt(Instant),
+    Exit,
+}
+
 /// Schedules frame updates based on egui's repaint requests.
 pub(crate) struct FrameScheduler {
     #[allow(dead_code)]
-    thread: std::thread::JoinHandle<()>,
-    next_frame_time: Arc<Mutex<Option<Instant>>>,
+    thread: Option<std::thread::JoinHandle<()>>,
+    next_frame_time: Arc<Mutex<FrameSchedulerSignal>>,
     frame_time_changed: Arc<Condvar>,
 }
 
 impl FrameScheduler {
     pub fn new(emit_frame: impl Fn() + Send + Sync + 'static) -> Self {
-        let next_frame_time = Arc::new(Mutex::new(None::<Instant>));
+        let next_frame_time = Arc::new(Mutex::new(FrameSchedulerSignal::NothingScheduled));
         let frame_time_changed = Arc::new(Condvar::new());
         let next_frame_time_thread = next_frame_time.clone();
         let frame_time_changed_thread = frame_time_changed.clone();
         let emit_frame = Arc::new(emit_frame);
 
         FrameScheduler {
-            thread: std::thread::spawn(move || {
+            thread: Some(std::thread::spawn(move || {
                 loop {
                     let mut next = next_frame_time_thread.lock().unwrap();
 
-                    // Wait for a frame time to be set
+                    // Wait for a next signal
                     next = frame_time_changed_thread
-                        .wait_while(next, |next| next.is_none())
+                        .wait_while(next, |next| {
+                            matches!(next, FrameSchedulerSignal::NothingScheduled)
+                        })
                         .unwrap();
-                    let deadline = next.unwrap();
-                    let now = Instant::now();
-                    if now >= deadline {
-                        // Time to emit a frame
-                        *next = None;
-                        drop(next);
-                        emit_frame();
-                        continue;
-                    }
 
-                    // Sleep with timeout until deadline, but wake if notified of earlier
-                    // deadline
+                    let now = Instant::now();
+                    let deadline = match &*next {
+                        FrameSchedulerSignal::Exit => {
+                            break;
+                        }
+                        FrameSchedulerSignal::ScheduleFrameAt(deadline) => {
+                            if &now >= deadline {
+                                // Time to emit a frame
+                                *next = FrameSchedulerSignal::NothingScheduled;
+                                drop(next);
+                                emit_frame();
+                                continue;
+                            }
+                            *deadline
+                        }
+                        FrameSchedulerSignal::NothingScheduled => {
+                            // Should not happen due to wait_while above
+                            continue;
+                        }
+                    };
+
+                    // Sleep with timeout until deadline, but wake if notified of new signal
                     let timeout = deadline - now;
                     let _ = frame_time_changed_thread
                         .wait_timeout(next, timeout)
@@ -50,7 +69,7 @@ impl FrameScheduler {
                     // set, check on next iteration which
                     // one it was
                 }
-            }),
+            })),
             next_frame_time,
             frame_time_changed,
         }
@@ -65,8 +84,8 @@ impl FrameScheduler {
     }
 
     /// Internal method to schedule a frame at a specific duration from now.
-    pub fn schedule_frame_at(
-        next_frame_time: &Arc<Mutex<Option<Instant>>>,
+    fn schedule_frame_at(
+        next_frame_time: &Arc<Mutex<FrameSchedulerSignal>>,
         frame_time_changed: &Arc<Condvar>,
         delay: Duration,
     ) {
@@ -75,16 +94,24 @@ impl FrameScheduler {
         let delay = if delay < min_delay { min_delay } else { delay };
         let deadline = Instant::now() + delay;
         let mut next = next_frame_time.lock().unwrap();
-        let should_notify = match *next {
-            None => true,
-            Some(prev) => deadline < prev,
+        let new_deadline: Option<Instant> = match *next {
+            FrameSchedulerSignal::NothingScheduled => Some(deadline),
+            FrameSchedulerSignal::ScheduleFrameAt(prev) => {
+                if deadline < prev {
+                    Some(deadline)
+                } else {
+                    None
+                }
+            }
+            FrameSchedulerSignal::Exit => None,
         };
-        *next = Some(match *next {
-            None => deadline,
-            Some(prev) => prev.min(deadline),
-        });
+
+        if let Some(new_deadline) = new_deadline {
+            *next = FrameSchedulerSignal::ScheduleFrameAt(new_deadline);
+        }
+
         drop(next);
-        if should_notify {
+        if new_deadline.is_some() {
             frame_time_changed.notify_all();
         }
     }
@@ -93,5 +120,15 @@ impl FrameScheduler {
     #[allow(dead_code)]
     pub fn schedule_frame(&mut self, at: Duration) {
         Self::schedule_frame_at(&self.next_frame_time, &self.frame_time_changed, at);
+    }
+}
+
+impl Drop for FrameScheduler {
+    fn drop(&mut self) {
+        let mut next = self.next_frame_time.lock().unwrap();
+        *next = FrameSchedulerSignal::Exit;
+        drop(next);
+        self.frame_time_changed.notify_all();
+        self.thread.take().unwrap().join().unwrap();
     }
 }
