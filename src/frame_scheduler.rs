@@ -1,3 +1,13 @@
+//! Frame scheduler for repaint requests
+//!
+//! Retains a next frame time and signals frame updates accordingly
+//!
+//! This is not supposed to hold many frame times, but instead only the next
+//! frame time. This is how EGUI works.
+
+// Note: Try not to edit this with LLMs, locking logic needs to be verified
+// manually.
+
 use std::sync::Arc;
 use std::sync::Condvar;
 use std::sync::Mutex;
