@@ -14,6 +14,7 @@ use crate::WaylandToEguiInput;
 use crate::egui_to_cursor_shape;
 use egui::Context;
 use log::trace;
+use smithay_client_toolkit::reexports::csd_frame::WindowState;
 use smithay_client_toolkit::seat::keyboard::KeyEvent;
 use smithay_client_toolkit::seat::keyboard::Modifiers as WaylandModifiers;
 use smithay_client_toolkit::seat::pointer::PointerEvent;
@@ -40,6 +41,7 @@ pub struct EguiSurfaceState<T: Into<Kind> + Clone> {
     width: u32,  // WGPU Surface width in logical pixels
     height: u32, // WGPU Surface height in logical pixels
     scale_factor: i32,
+    suspended: bool,
     last_fulloutput: Option<egui::FullOutput>,
     frame_timings: Option<(Instant, Instant)>,
     has_keyboard_focus: bool,
@@ -82,6 +84,7 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
             width,
             height,
             scale_factor: 1,
+            suspended: false,
             last_fulloutput: None,
             frame_timings: None,
             has_keyboard_focus: false,
@@ -102,11 +105,25 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
         self.kind == other.into()
     }
 
-    fn configure(&mut self, app: &Application, width: u32, height: u32) {
+    fn configure(
+        &mut self,
+        app: &Application,
+        width: u32,
+        height: u32,
+        window_state: Option<WindowState>,
+    ) {
         self.resize_viewport(app, width, height);
         self.width = width.max(1);
         self.height = height.max(1);
         self.input_state.set_screen_size(self.width, self.height);
+        self.suspended = window_state.map_or(false, |state| state.contains(WindowState::SUSPENDED));
+        self.frame_scheduler.set_fps_target(
+            if window_state.map_or(false, |state| state.contains(WindowState::SUSPENDED)) {
+                0.05 // 0.0001
+            } else {
+                60.0
+            },
+        );
     }
 
     fn resize_viewport(&mut self, app: &Application, width: u32, height: u32) {
@@ -196,22 +213,31 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
 
         self.renderer
             .render_to_wgpu(full_output, width, height, pixels_per_point);
+
+        // Update frame timings
+        let now = Instant::now();
+        let old = self
+            .frame_timings
+            .as_ref()
+            .map(|(_, end)| *end)
+            .unwrap_or(now);
+        self.frame_timings = Some((old, now));
     }
 
     /// Full render of EGUI frame (layout, input + GPU rendering)
     fn render(&mut self, ui: &mut impl FnMut(&egui::Context)) {
         self.process_egui_frame(ui);
+
+        if self.suspended {
+            trace!(
+                "[EGUI] Skipping rendering for suspended surface {:?}",
+                self.wl_surface().id()
+            );
+            return;
+        }
+
         if let Some(full_output) = self.last_fulloutput.take() {
             self.render_to_wgpu(full_output);
-
-            // Update frame timings
-            let now = Instant::now();
-            let old = self
-                .frame_timings
-                .as_ref()
-                .map(|(_, end)| *end)
-                .unwrap_or(now);
-            self.frame_timings = Some((old, now));
         }
     }
 
@@ -251,21 +277,21 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
                         .unwrap_or_else(|| NonZero::new(self.init_height).unwrap())
                         .get();
 
-                    self.configure(app, width, height);
+                    self.configure(app, width, height, Some(configure.state));
                     self.request_dispatch_frame(app);
                 }
                 WaylandEvent::LayerShellConfigure(_, config) => {
                     let width = config.new_size.0;
                     let height = config.new_size.1;
 
-                    self.configure(app, width, height);
+                    self.configure(app, width, height, None);
                     self.request_dispatch_frame(app);
                 }
                 WaylandEvent::PopupConfigure(_, config) => {
                     let width = config.width as u32;
                     let height = config.height as u32;
 
-                    self.configure(app, width, height);
+                    self.configure(app, width, height, None);
                     self.request_dispatch_frame(app);
                 }
                 WaylandEvent::Frame(_, _) => {

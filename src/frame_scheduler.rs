@@ -26,6 +26,7 @@ pub(crate) struct FrameScheduler {
     thread: Option<std::thread::JoinHandle<()>>,
     next_frame_time: Arc<Mutex<FrameSchedulerSignal>>,
     frame_time_changed: Arc<Condvar>,
+    fps_target: Arc<Mutex<f32>>,
 }
 
 impl FrameScheduler {
@@ -80,26 +81,40 @@ impl FrameScheduler {
                     // one it was
                 }
             })),
+            fps_target: Arc::new(Mutex::new(60.0)),
             next_frame_time,
             frame_time_changed,
         }
     }
 
+    /// Set the target FPS for frame scheduling
+    ///
+    /// If set zero, the value is clamped to a very low value (0.0001) to avoid
+    /// division by zero.
+    pub fn set_fps_target(&mut self, fps: f32) {
+        let mut fps_target = self.fps_target.lock().unwrap();
+        *fps_target = fps.abs().max(0.0001);
+    }
+
     pub fn create_scheduler(&self) -> impl Fn(Duration) + Send + Sync + 'static {
         let next_frame_time = self.next_frame_time.clone();
         let frame_time_changed = self.frame_time_changed.clone();
+        let fps_target = self.fps_target.clone();
         move |delay: Duration| {
-            Self::schedule_frame_at(&next_frame_time, &frame_time_changed, delay);
+            Self::schedule_frame_at(&fps_target, &next_frame_time, &frame_time_changed, delay);
         }
     }
 
     /// Internal method to schedule a frame at a specific duration from now.
     fn schedule_frame_at(
+        fps_target: &Arc<Mutex<f32>>,
         next_frame_time: &Arc<Mutex<FrameSchedulerSignal>>,
         frame_time_changed: &Arc<Condvar>,
         delay: Duration,
     ) {
-        let min_delay = std::time::Duration::from_nanos(16_666_666); // ~60 FPS
+        let min_delay = Duration::from_secs_f32(1.0 / *fps_target.lock().unwrap());
+        // let min_delay = std::time::Duration::from_secs(1); // ~1 FPS
+        // let min_delay = std::time::Duration::from_nanos(16_666_666); // ~60 FPS
         // let min_delay = std::time::Duration::from_nanos(3_333_333); // ~300 FPS
         let delay = if delay < min_delay { min_delay } else { delay };
         let deadline = Instant::now() + delay;
@@ -129,7 +144,12 @@ impl FrameScheduler {
     /// Schedule a frame update at the specified duration from now.
     #[allow(dead_code)]
     pub fn schedule_frame(&mut self, at: Duration) {
-        Self::schedule_frame_at(&self.next_frame_time, &self.frame_time_changed, at);
+        Self::schedule_frame_at(
+            &self.fps_target,
+            &self.next_frame_time,
+            &self.frame_time_changed,
+            at,
+        );
     }
 }
 
