@@ -29,41 +29,23 @@ impl FrameScheduler {
                     next = frame_time_changed_thread
                         .wait_while(next, |next| next.is_none())
                         .unwrap();
-
-                    loop {
-                        let deadline = next.unwrap();
-                        let now = Instant::now();
-
-                        if now >= deadline {
-                            // Deadline has passed, emit the event
-                            drop(next);
-
-                            emit_frame();
-
-                            // Clear the frame time after emitting
-                            let mut next = next_frame_time_thread.lock().unwrap();
-                            if *next == Some(deadline) {
-                                *next = None;
-                            }
-                            break;
-                        }
-
-                        // Sleep with timeout until deadline, but wake if notified of earlier
-                        // deadline
-                        let timeout = deadline - now;
-                        let (new_next, _) = frame_time_changed_thread
-                            .wait_timeout(next, timeout)
-                            .unwrap();
-                        next = new_next;
-
-                        // Check if a new earlier deadline was set
-                        if let Some(new_deadline) = *next {
-                            if new_deadline < deadline {
-                                // Loop back to wait for the new earlier deadline
-                                continue;
-                            }
-                        }
+                    let deadline = next.unwrap();
+                    let now = Instant::now();
+                    if now >= deadline {
+                        // Time to emit a frame
+                        *next = None;
+                        drop(next);
+                        emit_frame();
+                        continue;
                     }
+
+                    // Sleep with timeout until deadline, but wake if notified of earlier
+                    // deadline
+                    let timeout = deadline - now;
+                    let (new_next, _) = frame_time_changed_thread
+                        .wait_timeout(next, timeout)
+                        .unwrap();
+                    next = new_next;
                 }
             }),
             next_frame_time,
@@ -86,6 +68,7 @@ impl FrameScheduler {
         delay: Duration,
     ) {
         let min_delay = std::time::Duration::from_nanos(16_666_666); // ~60 FPS
+        // let min_delay = std::time::Duration::from_nanos(3_333_333); // ~300 FPS
         let delay = if delay < min_delay { min_delay } else { delay };
         let deadline = Instant::now() + delay;
         let mut next = next_frame_time.lock().unwrap();
