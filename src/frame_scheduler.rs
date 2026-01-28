@@ -1,4 +1,3 @@
-use crate::WaylandEventEmitter;
 use std::sync::Arc;
 use std::sync::Condvar;
 use std::sync::Mutex;
@@ -14,14 +13,12 @@ pub(crate) struct FrameScheduler {
 }
 
 impl FrameScheduler {
-    pub fn new(
-        event_emitter: WaylandEventEmitter,
-        wl_surface: wayland_client::protocol::wl_surface::WlSurface,
-    ) -> Self {
+    pub fn new(emit_frame: impl Fn() + Send + Sync + 'static) -> Self {
         let next_frame_time = Arc::new(Mutex::new(None::<Instant>));
         let frame_time_changed = Arc::new(Condvar::new());
         let next_frame_time_thread = next_frame_time.clone();
         let frame_time_changed_thread = frame_time_changed.clone();
+        let emit_frame = Arc::new(emit_frame);
 
         FrameScheduler {
             thread: std::thread::spawn(move || {
@@ -41,17 +38,13 @@ impl FrameScheduler {
                             // Deadline has passed, emit the event
                             drop(next);
 
-                            // Note: Using wl_surface.frame(), wl_surface.commit(), conn.flush()
-                            // caused crashes with WGPU handling, so I created a way to emit Frame
-                            // event without Wayland dispatching.
-                            event_emitter.emit_events(vec![crate::WaylandEvent::Frame(
-                                wl_surface.clone(),
-                                0,
-                            )]);
+                            emit_frame();
 
                             // Clear the frame time after emitting
                             let mut next = next_frame_time_thread.lock().unwrap();
-                            *next = None;
+                            if *next == Some(deadline) {
+                                *next = None;
+                            }
                             break;
                         }
 
