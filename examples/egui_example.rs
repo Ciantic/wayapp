@@ -41,6 +41,7 @@ impl EguiApp {
             ui.heading("Egui WGPU / Smithay example");
             ui.label(format!("Last render time: {:?}", self.last_render));
             ui.label(format!("FPS between two last frames: {:.2}", self.fps));
+            ui.label(format!("Frame number: {}", ctx.cumulative_pass_nr()));
 
             ui.separator();
 
@@ -124,17 +125,17 @@ fn main() {
     layer_surface.set_keyboard_interactivity(KeyboardInteractivity::Exclusive);
     layer_surface.set_anchor(Anchor::BOTTOM | Anchor::LEFT);
     layer_surface.set_margin(0, 0, 20, 20);
-    layer_surface.set_size(256, 256);
+    layer_surface.set_size(300, 300);
 
     // Example how to restrict input region
-    layer_surface.set_input_region(Some(&{
-        let region = app
-            .compositor_state
-            .wl_compositor()
-            .create_region(&app.qh, ());
-        region.add(20, 20, 150, 150);
-        region
-    }));
+    // layer_surface.set_input_region(Some(&{
+    //     let region = app
+    //         .compositor_state
+    //         .wl_compositor()
+    //         .create_region(&app.qh, ());
+    //     region.add(20, 20, 150, 150);
+    //     region
+    // }));
     layer_surface.commit();
 
     let mut layer_surface_app = EguiSurfaceState::new(&app, &layer_surface, 256, 256);
