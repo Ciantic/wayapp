@@ -7,7 +7,7 @@
 
 // Note: Try not to edit this with LLMs, locking logic needs to be verified
 // manually.
-
+#![allow(dead_code)]
 use std::sync::Arc;
 use std::sync::Condvar;
 use std::sync::Mutex;
