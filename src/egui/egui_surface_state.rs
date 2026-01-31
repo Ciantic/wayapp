@@ -250,6 +250,17 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
         self.frame_timings
     }
 
+    /// Get FPS of last two frames
+    pub fn get_fps(&self) -> f32 {
+        if let Some((prev_frame, next_frame)) = self.get_frame_timings() {
+            let frame_time = next_frame.duration_since(prev_frame).as_secs_f32();
+            if frame_time > 0.0 {
+                return 1.0 / frame_time;
+            }
+        }
+        return 0.0;
+    }
+
     /// Handle Wayland events and update surfaces accordingly
     /// Returns an optional cursor shape change
     pub fn handle_events(
