@@ -366,6 +366,18 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
                 WaylandEvent::ModifiersChanged(modifiers) => {
                     self.update_modifiers(modifiers);
                     self.process_egui_frame(ui);
+
+                    // Note: EGUI Doesn't have Event::ModifiersChanged, so we need to
+                    // request a frame manually here. There doesn't appear to be a way to determine
+                    // when modifiers change, but rather if they are pressed or not.
+                    //
+                    // Same problem in winit implementation:
+                    //
+                    // https://github.com/emilk/egui/blob/fa78d25564a5dbcb546ff6db0a9e14cb603ba03b/crates/egui-winit/src/lib.rs#L443-L465
+                    //
+                    // It doesn't call on_keyboard_input, it just updates state of modifiers without
+                    // emitting events.
+                    self.request_frame();
                 }
                 _ => {}
             }
