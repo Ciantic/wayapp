@@ -251,9 +251,12 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
     }
 
     /// Get FPS of last two frames
+    ///
+    /// EGUI is immediate mode GUI, this means it easier to show historical FPS,
+    /// as most of the time it could be zero.
     pub fn get_fps(&self) -> f32 {
-        if let Some((prev_frame, next_frame)) = self.get_frame_timings() {
-            let frame_time = next_frame.duration_since(prev_frame).as_secs_f32();
+        if let Some((prev_frame, next_frame)) = &self.frame_timings {
+            let frame_time = next_frame.duration_since(prev_frame.clone()).as_secs_f32();
             if frame_time > 0.0 {
                 return 1.0 / frame_time;
             }

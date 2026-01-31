@@ -28,12 +28,12 @@ impl EguiApp {
     }
 
     fn set_last_render(&mut self, prev_next_frame: (Instant, Instant)) {
-        let (prev_frame, next_frame) = prev_next_frame;
+        let (_, next_frame) = prev_next_frame;
         self.last_render = next_frame;
-        let frame_time = next_frame.duration_since(prev_frame).as_secs_f32();
-        if frame_time > 0.0 {
-            self.fps = 1.0 / frame_time;
-        }
+    }
+
+    fn set_fps(&mut self, fps: f32) {
+        self.fps = fps;
     }
 
     fn ui(&mut self, ctx: &Context) {
@@ -155,9 +155,11 @@ fn main() {
                     // Update FPS info
                     if let Some(last_render) = example_window_app.get_frame_timings() {
                         myapp1.set_last_render(last_render);
+                        myapp1.set_fps(example_window_app.get_fps());
                     }
                     if let Some(last_render) = layer_surface_app.get_frame_timings() {
                         myapp2.set_last_render(last_render);
+                        myapp2.set_fps(layer_surface_app.get_fps());
                     }
 
                     // Handle other Wayland events here if needed
