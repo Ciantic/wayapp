@@ -20,7 +20,7 @@ pub enum Kind {
     },
 }
 impl Kind {
-    pub fn get_object_id(&self) -> ObjectId {
+    fn get_object_id(&self) -> ObjectId {
         match self {
             Kind::Window(window) => window.wl_surface().id(),
             Kind::LayerSurface(layer_surface) => layer_surface.wl_surface().id(),
@@ -38,33 +38,33 @@ impl Kind {
         }
     }
 
-    pub fn is_window(&self, other: &Window) -> bool {
-        match self {
-            Kind::Window(_) => self.get_object_id() == other.wl_surface().id(),
-            _ => false,
-        }
-    }
+    // pub fn is_window(&self, other: &Window) -> bool {
+    //     match self {
+    //         Kind::Window(_) => self.get_object_id() == other.wl_surface().id(),
+    //         _ => false,
+    //     }
+    // }
 
-    pub fn is_layer_surface(&self, other: &LayerSurface) -> bool {
-        match self {
-            Kind::LayerSurface(_) => self.get_object_id() == other.wl_surface().id(),
-            _ => false,
-        }
-    }
+    // pub fn is_layer_surface(&self, other: &LayerSurface) -> bool {
+    //     match self {
+    //         Kind::LayerSurface(_) => self.get_object_id() ==
+    // other.wl_surface().id(),         _ => false,
+    //     }
+    // }
 
-    pub fn is_popup(&self, other: &Popup) -> bool {
-        match self {
-            Kind::Popup(_) => self.get_object_id() == other.wl_surface().id(),
-            _ => false,
-        }
-    }
+    // pub fn is_popup(&self, other: &Popup) -> bool {
+    //     match self {
+    //         Kind::Popup(_) => self.get_object_id() == other.wl_surface().id(),
+    //         _ => false,
+    //     }
+    // }
 
-    pub fn is_subsurface(&self, other: &WlSurface) -> bool {
-        match self {
-            Kind::Subsurface { .. } => self.get_object_id() == other.id(),
-            _ => false,
-        }
-    }
+    // pub fn is_subsurface(&self, other: &WlSurface) -> bool {
+    //     match self {
+    //         Kind::Subsurface { .. } => self.get_object_id() == other.id(),
+    //         _ => false,
+    //     }
+    // }
 
     // pub fn request_frame(&self, app: &Application) {
     //     let wl_surface = self.get_wl_surface();

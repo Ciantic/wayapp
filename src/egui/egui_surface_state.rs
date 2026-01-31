@@ -93,17 +93,21 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
         }
     }
 
-    pub fn wl_surface(&self) -> &WlSurface {
+    pub fn get_content(&self) -> &T {
+        &self.t
+    }
+
+    fn wl_surface(&self) -> &WlSurface {
         self.kind.get_wl_surface()
     }
 
-    pub fn get_kind(&self) -> &Kind {
-        &self.kind
-    }
+    // pub fn get_kind(&self) -> &Kind {
+    //     &self.kind
+    // }
 
-    pub fn contains<V: Into<Kind>>(&self, other: V) -> bool {
-        self.kind == other.into()
-    }
+    // pub fn contains<V: Into<Kind>>(&self, other: V) -> bool {
+    //     self.kind == other.into()
+    // }
 
     fn configure(
         &mut self,
@@ -385,7 +389,7 @@ impl<T: Into<Kind> + Clone> DerefMut for EguiSurfaceState<T> {
 
 /// Helper trait to allow calling `contains` on `Option<EguiSurfaceState<T>>`
 pub trait OptionEguiSurfaceStateExt<T: Into<Kind> + Clone> {
-    fn contains<V: Into<Kind>>(&self, other: V) -> bool;
+    // fn contains<V: Into<Kind>>(&self, other: V) -> bool;
 
     fn handle_events(
         &mut self,
@@ -396,9 +400,9 @@ pub trait OptionEguiSurfaceStateExt<T: Into<Kind> + Clone> {
 }
 
 impl<T: Into<Kind> + Clone> OptionEguiSurfaceStateExt<T> for Option<EguiSurfaceState<T>> {
-    fn contains<V: Into<Kind>>(&self, other: V) -> bool {
-        self.as_ref().map_or(false, |s| s.contains(other))
-    }
+    // fn contains<V: Into<Kind>>(&self, other: V) -> bool {
+    //     self.as_ref().map_or(false, |s| s.contains(other))
+    // }
 
     fn handle_events(
         &mut self,
