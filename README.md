@@ -1,4 +1,4 @@
-    # Wayapp
+# Wayapp
 
 No winit was used during creation of this thing.
 
