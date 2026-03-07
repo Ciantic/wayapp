@@ -15,3 +15,7 @@ I don't know will I ever get to ICED integration, but it is planned.
 ## Change log
 
 - 2026-07-03: EGUI WGPU defaults to transparent clear pass, EGUI then decides the background color.
+
+## Development notes
+
+- Remember to run `cargo upgrade` for updating dependencies before `cargo publish`.
