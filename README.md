@@ -1,4 +1,4 @@
-# Wayapp
+    # Wayapp
 
 No winit was used during creation of this thing.
 
@@ -11,3 +11,7 @@ Currently uses only EGUI WGPU rendering.
 ## ICED
 
 I don't know will I ever get to ICED integration, but it is planned.
+
+## Change log
+
+- 2026-07-03: EGUI WGPU defaults to transparent clear pass, EGUI then decides the background color.
