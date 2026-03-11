@@ -71,6 +71,9 @@ use wayland_client::protocol::wl_seat;
 use wayland_client::protocol::wl_surface::WlSurface;
 use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::Shape;
 use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::WpCursorShapeDeviceV1;
+use wayland_protocols::wp::text_input::zv3::client::zwp_text_input_manager_v3::ZwpTextInputManagerV3;
+use wayland_protocols::wp::text_input::zv3::client::zwp_text_input_v3;
+use wayland_protocols::wp::text_input::zv3::client::zwp_text_input_v3::ZwpTextInputV3;
 use wayland_protocols::wp::viewporter::client::wp_viewport::WpViewport;
 use wayland_protocols::wp::viewporter::client::wp_viewport::{self};
 use wayland_protocols::wp::viewporter::client::wp_viewporter::WpViewporter;
@@ -156,6 +159,9 @@ pub struct Application {
     pub layer_shell: LayerShell,
     pub clipboard: Clipboard,
     pub viewporter: SimpleGlobal<WpViewporter, 1>,
+    pub text_input_manager: SimpleGlobal<ZwpTextInputManagerV3, 1>,
+    pub text_input: Option<ZwpTextInputV3>,
+
     cursor_shape_manager: CursorShapeManager,
     last_pointer_enter_serial: Option<u32>,
     last_pointer: Option<WlPointer>,
@@ -186,6 +192,8 @@ impl Application {
             CursorShapeManager::bind(&globals, &qh).expect("cursor shape manager not available");
         let viewporter = SimpleGlobal::<WpViewporter, 1>::bind(&globals, &qh)
             .expect("wp_viewporter not available");
+        let text_input_manager = SimpleGlobal::<ZwpTextInputManagerV3, 1>::bind(&globals, &qh)
+            .expect("zwp_text_input_manager_v3 not available");
         let clipboard = unsafe { Clipboard::new(conn.display().id().as_ptr() as *mut _) };
 
         Self {
@@ -203,6 +211,8 @@ impl Application {
             layer_shell,
             clipboard,
             viewporter,
+            text_input_manager,
+            text_input: None,
             cursor_shape_manager,
             last_pointer_enter_serial: None,
             last_pointer: None,
@@ -719,6 +729,12 @@ impl SeatHandler for Application {
                     trace!("[MAIN] Failed to create wl_keyboard: {:?}", e);
                 }
             }
+            if self.text_input.is_none() {
+                if let Ok(manager) = self.text_input_manager.get() {
+                    self.text_input = Some(manager.get_text_input(&seat, qh, ()));
+                    trace!("[MAIN] Created zwp_text_input_v3");
+                }
+            }
         }
         if capability == Capability::Pointer {
             let _ = self.seat_state.get_pointer(&qh, &seat);
@@ -755,6 +771,39 @@ impl ProvidesRegistryState for Application {
 impl AsMut<SimpleGlobal<WpViewporter, 1>> for Application {
     fn as_mut(&mut self) -> &mut SimpleGlobal<WpViewporter, 1> {
         &mut self.viewporter
+    }
+}
+
+impl AsMut<SimpleGlobal<ZwpTextInputManagerV3, 1>> for Application {
+    fn as_mut(&mut self) -> &mut SimpleGlobal<ZwpTextInputManagerV3, 1> {
+        &mut self.text_input_manager
+    }
+}
+
+impl Dispatch<ZwpTextInputV3, ()> for Application {
+    fn event(
+        _: &mut Application,
+        _ti: &ZwpTextInputV3,
+        evt: zwp_text_input_v3::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        match evt {
+            zwp_text_input_v3::Event::Enter { surface } => {
+                trace!(
+                    "[COMMON] Text input enter event for surface {:?}",
+                    surface.id()
+                );
+            }
+            zwp_text_input_v3::Event::Leave { surface } => {
+                trace!(
+                    "[COMMON] Text input leave event for surface {:?}",
+                    surface.id()
+                );
+            }
+            _ => {}
+        }
     }
 }
 
@@ -796,6 +845,7 @@ delegate_xdg_window!(Application);
 delegate_xdg_popup!(Application);
 delegate_registry!(Application);
 delegate_simple!(Application, WpViewporter, 1);
+delegate_simple!(Application, ZwpTextInputManagerV3, 1);
 
 // ----------------------------------------------------------------
 // Request frame helper

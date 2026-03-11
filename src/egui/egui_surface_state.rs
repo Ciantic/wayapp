@@ -249,6 +249,38 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
         self.scale_factor.max(1) as u32
     }
 
+    fn sync_ime(&mut self, app: &Application) {
+        let ime = self
+            .last_fulloutput
+            .as_ref()
+            .and_then(|o| o.platform_output.ime);
+        match ime {
+            Some(ime) => {
+                if let Some(ti) = &app.text_input {
+                    trace!(
+                        "[IME] Activating IME with cursor rect: {:?}",
+                        ime.cursor_rect
+                    );
+                    ti.enable();
+                    ti.set_cursor_rectangle(
+                        ime.cursor_rect.min.x as i32,
+                        ime.cursor_rect.min.y as i32,
+                        ime.cursor_rect.width() as i32,
+                        ime.cursor_rect.height() as i32,
+                    );
+                    ti.commit();
+                }
+            }
+            None => {
+                if let Some(ti) = &app.text_input {
+                    trace!("[IME] Deactivating IME");
+                    ti.disable();
+                    ti.commit();
+                }
+            }
+        }
+    }
+
     /// Get the last frame timings (previous frame time, current frame time)
     pub fn get_frame_timings(&self) -> Option<(Instant, Instant)> {
         self.frame_timings
@@ -318,6 +350,7 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
                 WaylandEvent::ScaleFactorChanged(_, factor) => {
                     self.scale_factor_changed(*factor);
                     self.process_egui_frame(ui);
+                    self.sync_ime(app);
                     self.request_frame();
                 }
                 WaylandEvent::PointerEvent((surface, position, event_kind)) => {
@@ -334,38 +367,45 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
                     {
                         app.set_cursor(egui_to_cursor_shape(cursor));
                     }
+                    self.sync_ime(app);
                 }
                 WaylandEvent::KeyboardEnter(_, _serials, _keysyms) => {
                     self.handle_keyboard_enter();
                     self.has_keyboard_focus = true;
                     self.process_egui_frame(ui);
+                    self.sync_ime(app);
                 }
                 WaylandEvent::KeyboardLeave(_) => {
                     self.handle_keyboard_leave();
                     self.has_keyboard_focus = false;
                     self.process_egui_frame(ui);
+                    self.sync_ime(app);
                 }
                 WaylandEvent::KeyPress(key_event) => {
                     if self.has_keyboard_focus {
                         self.handle_keyboard_event(key_event, true, false);
                         self.process_egui_frame(ui);
+                        self.sync_ime(app);
                     }
                 }
                 WaylandEvent::KeyRelease(key_event) => {
                     if self.has_keyboard_focus {
                         self.handle_keyboard_event(key_event, false, false);
                         self.process_egui_frame(ui);
+                        self.sync_ime(app);
                     }
                 }
                 WaylandEvent::KeyRepeat(key_event) => {
                     if self.has_keyboard_focus {
                         self.handle_keyboard_event(key_event, true, true);
                         self.process_egui_frame(ui);
+                        self.sync_ime(app);
                     }
                 }
                 WaylandEvent::ModifiersChanged(modifiers) => {
                     self.update_modifiers(modifiers);
                     self.process_egui_frame(ui);
+                    self.sync_ime(app);
 
                     // Note: EGUI Doesn't have Event::ModifiersChanged, so we need to
                     // request a frame manually here. There doesn't appear to be a way to determine
