@@ -43,6 +43,7 @@ pub struct EguiSurfaceState<T: Into<Kind> + Clone> {
     scale_factor: i32,
     suspended: bool,
     last_fulloutput: Option<egui::FullOutput>,
+    last_ime_output: Option<egui::output::IMEOutput>,
     frame_timings: Option<(Instant, Instant)>,
     has_keyboard_focus: bool,
     egui_context: Context,
@@ -86,6 +87,7 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
             scale_factor: 1,
             suspended: false,
             last_fulloutput: None,
+            last_ime_output: None,
             frame_timings: None,
             has_keyboard_focus: false,
             egui_context,
@@ -251,32 +253,41 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
 
     /// Send cursor position to Wayland
     fn sync_text_input_cursor(&mut self, app: &Application) {
-        let ime = self
+        let new_ime = self
             .last_fulloutput
             .as_ref()
-            .and_then(|o| o.platform_output.ime);
-        match ime {
-            Some(ime) => {
-                if let Some(ti) = &app.text_input {
-                    trace!(
-                        "[IME] Activating Text Input with cursor rect: {:?}",
-                        ime.cursor_rect
-                    );
-                    ti.enable();
-                    ti.set_cursor_rectangle(
-                        ime.cursor_rect.min.x as i32,
-                        ime.cursor_rect.min.y as i32,
-                        ime.cursor_rect.width() as i32,
-                        ime.cursor_rect.height() as i32,
-                    );
-                    ti.commit();
+            .and_then(|o| o.platform_output.ime.clone());
+
+        if new_ime != self.last_ime_output {
+            trace!(
+                "[IME] IME output changed: {:?} -> {:?}",
+                self.last_ime_output, new_ime
+            );
+            self.last_ime_output = new_ime.clone();
+
+            match new_ime {
+                Some(ime) => {
+                    if let Some(ti) = &app.text_input {
+                        trace!(
+                            "[IME] Activating Text Input with cursor rect: {:?}",
+                            ime.cursor_rect
+                        );
+                        ti.enable();
+                        ti.set_cursor_rectangle(
+                            ime.cursor_rect.min.x as i32,
+                            ime.cursor_rect.min.y as i32,
+                            ime.cursor_rect.width() as i32,
+                            ime.cursor_rect.height() as i32,
+                        );
+                        ti.commit();
+                    }
                 }
-            }
-            None => {
-                if let Some(ti) = &app.text_input {
-                    trace!("[IME] Deactivating Text Input");
-                    ti.disable();
-                    ti.commit();
+                None => {
+                    if let Some(ti) = &app.text_input {
+                        trace!("[IME] Deactivating Text Input");
+                        ti.disable();
+                        ti.commit();
+                    }
                 }
             }
         }
@@ -431,37 +442,31 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
                     self.process_egui_frame(ui);
                 }
                 WaylandEvent::ImeCommitString(text) => {
-                    if let Some(text) = text {
-                        trace!("[IME] ImeCommitString: {}", text);
-                        self.input_state.handle_ime_commit(text);
-                    }
+                    trace!("[IME] ImeCommitString buffered: {:?}", text);
+                    self.input_state
+                        .handle_ime_commit(text.as_ref().unwrap_or(&"".to_string()));
                     self.process_egui_frame(ui);
-                    // self.sync_text_input_cursor(app);
+                    self.sync_text_input_cursor(app);
                 }
                 WaylandEvent::ImePreeditString(text, cursor_begin, cursor_end) => {
-                    trace!("[IME] ImePreeditString: {:?}", text);
+                    trace!("[IME] ImePreeditString buffered: {:?}", text);
                     self.input_state.handle_ime_preedit_string(
                         text.as_ref().unwrap_or(&"".to_string()),
                         *cursor_begin,
                         *cursor_end,
                     );
                     self.process_egui_frame(ui);
-                    // self.sync_text_input_cursor(app);
+                    self.sync_text_input_cursor(app);
                 }
                 WaylandEvent::ImeDeleteSurroundingText(before_length, after_length) => {
                     trace!(
-                        "[IME] ImeDeleteSurroundingText: before={}, after={}",
+                        "[IME] ImeDeleteSurroundingText buffered: before={}, after={}",
                         before_length, after_length
                     );
-                    self.input_state
-                        .handle_ime_delete_surrounding_text(*before_length, *after_length);
-                    self.process_egui_frame(ui);
-                    // self.sync_text_input_cursor(app);
+                    // EGUI Really doesn't have this
                 }
-                WaylandEvent::ImeDone(serial) => {
-                    trace!("[IME] ImeDone: serial={}", serial);
-                    // self.process_egui_frame(ui);
-                    // self.sync_text_input_cursor(app);
+                WaylandEvent::ImeDone(_serial) => {
+                    // It doesn't seem to need this?
                 }
                 _ => {}
             }
