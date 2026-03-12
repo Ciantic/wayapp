@@ -106,6 +106,21 @@ pub enum WaylandEvent {
     KeyRepeat(KeyEvent),
     PointerEvent((WlSurface, (f64, f64), PointerEventKind)),
     ModifiersChanged(smithay_client_toolkit::seat::keyboard::Modifiers),
+    ImeEnter(WlSurface),
+    ImeLeave(WlSurface),
+    /// The text to commit to the input field. `None` clears any pending
+    /// preedit.
+    ImeCommitString(Option<String>),
+    /// Preedit (in-progress composition) text, cursor byte offset from the
+    /// start of the preedit string to the beginning and end of the cursor
+    /// selection (`cursor_begin`, `cursor_end`). Both are `-1` when there
+    /// is no cursor.
+    ImePreeditString(Option<String>, i32, i32),
+    /// Number of bytes to delete before (`before_length`) and after
+    /// (`after_length`) the current cursor position.
+    ImeDeleteSurroundingText(u32, u32),
+    /// Signals that a complete set of IME events has been sent for this serial.
+    ImeDone(u32),
 }
 
 impl WaylandEvent {
@@ -124,6 +139,8 @@ impl WaylandEvent {
             WaylandEvent::KeyboardEnter(s, _, _) => Some(s),
             WaylandEvent::KeyboardLeave(s) => Some(s),
             WaylandEvent::PointerEvent((s, _, _)) => Some(s),
+            WaylandEvent::ImeEnter(s) => Some(s),
+            WaylandEvent::ImeLeave(s) => Some(s),
             _ => None,
         }
     }
@@ -782,7 +799,7 @@ impl AsMut<SimpleGlobal<ZwpTextInputManagerV3, 1>> for Application {
 
 impl Dispatch<ZwpTextInputV3, ()> for Application {
     fn event(
-        _: &mut Application,
+        state: &mut Application,
         _ti: &ZwpTextInputV3,
         evt: zwp_text_input_v3::Event,
         _: &(),
@@ -795,14 +812,59 @@ impl Dispatch<ZwpTextInputV3, ()> for Application {
                     "[COMMON] Text input enter event for surface {:?}",
                     surface.id()
                 );
+                state.push_wayland_event(WaylandEvent::ImeEnter(surface));
             }
             zwp_text_input_v3::Event::Leave { surface } => {
                 trace!(
                     "[COMMON] Text input leave event for surface {:?}",
                     surface.id()
                 );
+                state.push_wayland_event(WaylandEvent::ImeLeave(surface));
             }
-            _ => {}
+            zwp_text_input_v3::Event::CommitString { text } => {
+                trace!("[COMMON] Received committed text input: {:?}", text);
+                state.push_wayland_event(WaylandEvent::ImeCommitString(text));
+            }
+            zwp_text_input_v3::Event::PreeditString {
+                text,
+                cursor_begin,
+                cursor_end,
+            } => {
+                trace!(
+                    "[COMMON] Received preedit text input: text={:?}, cursor_begin={}, \
+                     cursor_end={}",
+                    text, cursor_begin, cursor_end
+                );
+                state.push_wayland_event(WaylandEvent::ImePreeditString(
+                    text,
+                    cursor_begin,
+                    cursor_end,
+                ));
+            }
+            zwp_text_input_v3::Event::DeleteSurroundingText {
+                before_length,
+                after_length,
+            } => {
+                trace!(
+                    "[COMMON] Received delete surrounding text input: before_length={}, \
+                     after_length={}",
+                    before_length, after_length
+                );
+                state.push_wayland_event(WaylandEvent::ImeDeleteSurroundingText(
+                    before_length,
+                    after_length,
+                ));
+            }
+            zwp_text_input_v3::Event::Done { serial } => {
+                trace!(
+                    "[COMMON] Received text input done event with serial {}",
+                    serial
+                );
+                state.push_wayland_event(WaylandEvent::ImeDone(serial));
+            }
+            _ => {
+                trace!("[COMMON] Received unhandled text input event: {:?}", evt);
+            }
         }
     }
 }

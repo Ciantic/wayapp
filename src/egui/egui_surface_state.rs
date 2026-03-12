@@ -249,7 +249,8 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
         self.scale_factor.max(1) as u32
     }
 
-    fn sync_ime(&mut self, app: &Application) {
+    /// Send cursor position to Wayland
+    fn sync_text_input_cursor(&mut self, app: &Application) {
         let ime = self
             .last_fulloutput
             .as_ref()
@@ -258,7 +259,7 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
             Some(ime) => {
                 if let Some(ti) = &app.text_input {
                     trace!(
-                        "[IME] Activating IME with cursor rect: {:?}",
+                        "[IME] Activating Text Input with cursor rect: {:?}",
                         ime.cursor_rect
                     );
                     ti.enable();
@@ -273,7 +274,7 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
             }
             None => {
                 if let Some(ti) = &app.text_input {
-                    trace!("[IME] Deactivating IME");
+                    trace!("[IME] Deactivating Text Input");
                     ti.disable();
                     ti.commit();
                 }
@@ -350,7 +351,7 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
                 WaylandEvent::ScaleFactorChanged(_, factor) => {
                     self.scale_factor_changed(*factor);
                     self.process_egui_frame(ui);
-                    self.sync_ime(app);
+                    self.sync_text_input_cursor(app);
                     self.request_frame();
                 }
                 WaylandEvent::PointerEvent((surface, position, event_kind)) => {
@@ -367,45 +368,45 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
                     {
                         app.set_cursor(egui_to_cursor_shape(cursor));
                     }
-                    self.sync_ime(app);
+                    self.sync_text_input_cursor(app);
                 }
                 WaylandEvent::KeyboardEnter(_, _serials, _keysyms) => {
                     self.handle_keyboard_enter();
                     self.has_keyboard_focus = true;
                     self.process_egui_frame(ui);
-                    self.sync_ime(app);
+                    self.sync_text_input_cursor(app);
                 }
                 WaylandEvent::KeyboardLeave(_) => {
                     self.handle_keyboard_leave();
                     self.has_keyboard_focus = false;
                     self.process_egui_frame(ui);
-                    self.sync_ime(app);
+                    self.sync_text_input_cursor(app);
                 }
                 WaylandEvent::KeyPress(key_event) => {
                     if self.has_keyboard_focus {
                         self.handle_keyboard_event(key_event, true, false);
                         self.process_egui_frame(ui);
-                        self.sync_ime(app);
+                        self.sync_text_input_cursor(app);
                     }
                 }
                 WaylandEvent::KeyRelease(key_event) => {
                     if self.has_keyboard_focus {
                         self.handle_keyboard_event(key_event, false, false);
                         self.process_egui_frame(ui);
-                        self.sync_ime(app);
+                        self.sync_text_input_cursor(app);
                     }
                 }
                 WaylandEvent::KeyRepeat(key_event) => {
                     if self.has_keyboard_focus {
                         self.handle_keyboard_event(key_event, true, true);
                         self.process_egui_frame(ui);
-                        self.sync_ime(app);
+                        self.sync_text_input_cursor(app);
                     }
                 }
                 WaylandEvent::ModifiersChanged(modifiers) => {
                     self.update_modifiers(modifiers);
                     self.process_egui_frame(ui);
-                    self.sync_ime(app);
+                    self.sync_text_input_cursor(app);
 
                     // Note: EGUI Doesn't have Event::ModifiersChanged, so we need to
                     // request a frame manually here. There doesn't appear to be a way to determine
@@ -418,6 +419,49 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
                     // It doesn't call on_keyboard_input, it just updates state of modifiers without
                     // emitting events.
                     self.request_frame();
+                }
+                WaylandEvent::ImeEnter(surface) => {
+                    trace!("[IME] ImeEnter for surface {:?}", surface.id());
+                    self.input_state.handle_ime_enter();
+                    self.process_egui_frame(ui);
+                }
+                WaylandEvent::ImeLeave(surface) => {
+                    trace!("[IME] ImeLeave for surface {:?}", surface.id());
+                    self.input_state.handle_ime_leave();
+                    self.process_egui_frame(ui);
+                }
+                WaylandEvent::ImeCommitString(text) => {
+                    if let Some(text) = text {
+                        trace!("[IME] ImeCommitString: {}", text);
+                        self.input_state.handle_ime_commit(text);
+                    }
+                    self.process_egui_frame(ui);
+                    // self.sync_text_input_cursor(app);
+                }
+                WaylandEvent::ImePreeditString(text, cursor_begin, cursor_end) => {
+                    trace!("[IME] ImePreeditString: {:?}", text);
+                    self.input_state.handle_ime_preedit_string(
+                        text.as_ref().unwrap_or(&"".to_string()),
+                        *cursor_begin,
+                        *cursor_end,
+                    );
+                    self.process_egui_frame(ui);
+                    // self.sync_text_input_cursor(app);
+                }
+                WaylandEvent::ImeDeleteSurroundingText(before_length, after_length) => {
+                    trace!(
+                        "[IME] ImeDeleteSurroundingText: before={}, after={}",
+                        before_length, after_length
+                    );
+                    self.input_state
+                        .handle_ime_delete_surrounding_text(*before_length, *after_length);
+                    self.process_egui_frame(ui);
+                    // self.sync_text_input_cursor(app);
+                }
+                WaylandEvent::ImeDone(serial) => {
+                    trace!("[IME] ImeDone: serial={}", serial);
+                    // self.process_egui_frame(ui);
+                    // self.sync_text_input_cursor(app);
                 }
                 _ => {}
             }

@@ -4,6 +4,7 @@
 //! following the pattern from single_color.rs
 
 use egui::Event;
+use egui::ImeEvent;
 use egui::Key;
 use egui::Modifiers as EguiModifiers;
 use egui::PointerButton;
@@ -199,6 +200,57 @@ impl WaylandToEguiInput {
                 trace!("[INPUT] OpenUrl command received: {}", url.url);
             }
         }
+    }
+
+    pub fn handle_ime_enter(&mut self) {
+        trace!("[INPUT] IME enabled");
+        self.events.push(Event::Ime(ImeEvent::Enabled));
+    }
+
+    pub fn handle_ime_leave(&mut self) {
+        trace!("[INPUT] IME disabled");
+        self.events.push(Event::Ime(ImeEvent::Disabled));
+    }
+
+    pub fn handle_ime_commit(&mut self, text: &str) {
+        trace!("[INPUT] Committing IME text: {}", text);
+        self.events
+            .push(Event::Ime(ImeEvent::Commit(text.to_string())));
+    }
+
+    pub fn handle_ime_preedit_string(&mut self, text: &str, _cursor_begin: i32, _cursor_end: i32) {
+        trace!("[INPUT] IME preedit: {:?}", text);
+        self.events
+            .push(Event::Ime(ImeEvent::Preedit(text.to_string())));
+    }
+
+    pub fn handle_ime_delete_surrounding_text(&mut self, before_length: u32, after_length: u32) {
+        trace!(
+            "[INPUT] IME delete surrounding text: before={} bytes, after={} bytes",
+            before_length, after_length
+        );
+        // egui has no native DeleteSurroundingText event. Approximate with key
+        // presses: divide byte counts by 3 (UTF-8 CJK chars are 3
+        // bytes) to get character counts. (SLOP needs testing)
+
+        // for _ in 0..before_length.div_ceil(3) {
+        //     self.events.push(Event::Key {
+        //         key: Key::Backspace,
+        //         physical_key: None,
+        //         pressed: true,
+        //         repeat: false,
+        //         modifiers: self.modifiers,
+        //     });
+        // }
+        // for _ in 0..after_length.div_ceil(3) {
+        //     self.events.push(Event::Key {
+        //         key: Key::Delete,
+        //         physical_key: None,
+        //         pressed: true,
+        //         repeat: false,
+        //         modifiers: self.modifiers,
+        //     });
+        // }
     }
 }
 
