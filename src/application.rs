@@ -71,6 +71,14 @@ use wayland_client::protocol::wl_seat;
 use wayland_client::protocol::wl_surface::WlSurface;
 use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::Shape;
 use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::WpCursorShapeDeviceV1;
+use wayland_protocols::wp::input_method::zv1::client::zwp_input_method_context_v1;
+use wayland_protocols::wp::input_method::zv1::client::zwp_input_method_context_v1::ZwpInputMethodContextV1;
+use wayland_protocols::wp::input_method::zv1::client::zwp_input_method_v1;
+use wayland_protocols::wp::input_method::zv1::client::zwp_input_method_v1::ZwpInputMethodV1;
+use wayland_protocols::wp::input_method::zv1::client::zwp_input_panel_surface_v1::ZwpInputPanelSurfaceV1;
+use wayland_protocols::wp::input_method::zv1::client::zwp_input_panel_v1::ZwpInputPanelV1;
+use wayland_protocols::wp::text_input::zv1::client::zwp_text_input_v1::Event as ZwpTextInputV1Event;
+use wayland_protocols::wp::text_input::zv1::client::zwp_text_input_v1::ZwpTextInputV1;
 use wayland_protocols::wp::text_input::zv3::client::zwp_text_input_manager_v3::ZwpTextInputManagerV3;
 use wayland_protocols::wp::text_input::zv3::client::zwp_text_input_v3;
 use wayland_protocols::wp::text_input::zv3::client::zwp_text_input_v3::ZwpTextInputV3;
@@ -121,6 +129,16 @@ pub enum WaylandEvent {
     ImeDeleteSurroundingText(u32, u32),
     /// Signals that a complete set of IME events has been sent for this serial.
     ImeDone(u32),
+    /// Input method (virtual keyboard) was activated for the given context.
+    InputMethodActivate(ZwpInputMethodContextV1),
+    /// Input method (virtual keyboard) was deactivated.
+    InputMethodDeactivate(ZwpInputMethodContextV1),
+    InputMethodSurroundingText(String, u32, u32),
+    InputMethodReset,
+    InputMethodContentType(u32, u32),
+    InputMethodInvokeAction(u32, u32),
+    InputMethodCommitState(u32),
+    InputMethodPreferredLanguage(String),
 }
 
 impl WaylandEvent {
@@ -177,6 +195,8 @@ pub struct Application {
     pub clipboard: Clipboard,
     pub viewporter: SimpleGlobal<WpViewporter, 1>,
     pub text_input_manager: SimpleGlobal<ZwpTextInputManagerV3, 1>,
+    pub input_panel: SimpleGlobal<ZwpInputPanelV1, 1>,
+    pub input_method: SimpleGlobal<ZwpInputMethodV1, 1>,
     pub text_input: Option<ZwpTextInputV3>,
 
     cursor_shape_manager: CursorShapeManager,
@@ -211,6 +231,13 @@ impl Application {
             .expect("wp_viewporter not available");
         let text_input_manager = SimpleGlobal::<ZwpTextInputManagerV3, 1>::bind(&globals, &qh)
             .expect("zwp_text_input_manager_v3 not available");
+        // let input_method = globals
+        //     .bind::<ZwpInputMethodV1, _, ()>(&qh, 1..=1, ())
+        //     .expect("zwp_input_method_v1 not available");
+        let input_method = SimpleGlobal::<ZwpInputMethodV1, 1>::bind(&globals, &qh)
+            .expect("zwp_input_method_v1 not available");
+        let input_panel = SimpleGlobal::<ZwpInputPanelV1, 1>::bind(&globals, &qh)
+            .expect("zwp_input_panel_v1 not available");
         let clipboard = unsafe { Clipboard::new(conn.display().id().as_ptr() as *mut _) };
 
         Self {
@@ -229,6 +256,8 @@ impl Application {
             clipboard,
             viewporter,
             text_input_manager,
+            input_panel,
+            input_method,
             text_input: None,
             cursor_shape_manager,
             last_pointer_enter_serial: None,
@@ -797,6 +826,90 @@ impl AsMut<SimpleGlobal<ZwpTextInputManagerV3, 1>> for Application {
     }
 }
 
+impl AsMut<SimpleGlobal<ZwpInputPanelV1, 1>> for Application {
+    fn as_mut(&mut self) -> &mut SimpleGlobal<ZwpInputPanelV1, 1> {
+        &mut self.input_panel
+    }
+}
+
+impl Dispatch<ZwpInputMethodV1, ()> for Application {
+    wayland_client::event_created_child!(Application, ZwpInputMethodV1, [
+        zwp_input_method_v1::EVT_ACTIVATE_OPCODE => (ZwpInputMethodContextV1, ())
+    ]);
+
+    fn event(
+        state: &mut Application,
+        _im: &ZwpInputMethodV1,
+        evt: zwp_input_method_v1::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        match evt {
+            zwp_input_method_v1::Event::Activate { id } => {
+                trace!("[COMMON] Input method activated");
+                state.push_wayland_event(WaylandEvent::InputMethodActivate(id));
+            }
+            zwp_input_method_v1::Event::Deactivate { context } => {
+                trace!("[COMMON] Input method deactivated");
+                state.push_wayland_event(WaylandEvent::InputMethodDeactivate(context));
+            }
+            _ => {}
+        }
+    }
+}
+
+impl Dispatch<ZwpInputMethodContextV1, ()> for Application {
+    fn event(
+        state: &mut Application,
+        _ctx: &ZwpInputMethodContextV1,
+        evt: zwp_input_method_context_v1::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        match evt {
+            zwp_input_method_context_v1::Event::SurroundingText {
+                text,
+                cursor,
+                anchor,
+            } => {
+                trace!("[COMMON] Input method surrounding text: {:?}", text);
+                state.push_wayland_event(WaylandEvent::InputMethodSurroundingText(
+                    text, cursor, anchor,
+                ));
+            }
+            zwp_input_method_context_v1::Event::Reset => {
+                trace!("[COMMON] Input method reset");
+                state.push_wayland_event(WaylandEvent::InputMethodReset);
+            }
+            zwp_input_method_context_v1::Event::ContentType { hint, purpose } => {
+                trace!(
+                    "[COMMON] Input method content type: hint={}, purpose={}",
+                    hint, purpose
+                );
+                state.push_wayland_event(WaylandEvent::InputMethodContentType(hint, purpose));
+            }
+            zwp_input_method_context_v1::Event::InvokeAction { button, index } => {
+                trace!(
+                    "[COMMON] Input method invoke action: button={}, index={}",
+                    button, index
+                );
+                state.push_wayland_event(WaylandEvent::InputMethodInvokeAction(button, index));
+            }
+            zwp_input_method_context_v1::Event::CommitState { serial } => {
+                trace!("[COMMON] Input method commit state: serial={}", serial);
+                state.push_wayland_event(WaylandEvent::InputMethodCommitState(serial));
+            }
+            zwp_input_method_context_v1::Event::PreferredLanguage { language } => {
+                trace!("[COMMON] Input method preferred language: {:?}", language);
+                state.push_wayland_event(WaylandEvent::InputMethodPreferredLanguage(language));
+            }
+            _ => {}
+        }
+    }
+}
+
 impl Dispatch<ZwpTextInputV3, ()> for Application {
     fn event(
         state: &mut Application,
@@ -908,6 +1021,8 @@ delegate_xdg_popup!(Application);
 delegate_registry!(Application);
 delegate_simple!(Application, WpViewporter, 1);
 delegate_simple!(Application, ZwpTextInputManagerV3, 1);
+delegate_simple!(Application, ZwpInputPanelV1, 1);
+delegate_simple!(Application, ZwpInputPanelSurfaceV1, 1);
 
 // ----------------------------------------------------------------
 // Request frame helper
