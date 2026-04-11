@@ -16,12 +16,20 @@ wayland-client = "0.31.14"
 wayland-protocols = "0.32.12"
 wayland-protocols-wlr = "0.3.12"
 
-# Used only by egui/wgpu backend
+# Used only by egui/wgpu backend (TODO: Add feature egui-wgpu should be default)
 futures = "0.3.32"
 egui = "0.33.3"
 egui-wgpu = "0.33.3"
 raw-window-handle = "0.6.2"
 wgpu = "27.0.1"
+
+# Imgui (TODO Add feature imgui-glow)
+imgui = { git = "https://github.com/imgui-rs/imgui-rs", version = "0.12" }
+imgui-glow-renderer = { git = "https://github.com/imgui-rs/imgui-glow-renderer" }
+glow = "0.14"
+khronos-egl = { version = "6", features = ["dynamic"] }
+wayland-sys = { version = "0.31", features = ["egl", "client", "dlopen"] }
+
 
 [dev-dependencies]
 env_logger = "0.11.10"
@@ -45,3 +53,6 @@ _example = []
 [[example]]
 name = "egui_tokio_async"
 required-features = ["_example"]
+
+[[example]]
+name = "imgui_example"
