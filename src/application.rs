@@ -797,11 +797,11 @@ impl AsMut<SimpleGlobal<WpViewporter, 1>> for Application {
     }
 }
 
-impl AsMut<SimpleGlobal<ZwpTextInputManagerV3, 1>> for Application {
-    fn as_mut(&mut self) -> &mut SimpleGlobal<ZwpTextInputManagerV3, 1> {
-        self.text_input_manager.as_mut().unwrap()
-    }
-}
+// impl AsMut<SimpleGlobal<ZwpTextInputManagerV3, 1>> for Application {
+//     fn as_mut(&mut self) -> &mut SimpleGlobal<ZwpTextInputManagerV3, 1> {
+//         self.text_input_manager.as_mut().unwrap()
+//     }
+// }
 
 impl Dispatch<ZwpTextInputV3, ()> for Application {
     fn event(
