@@ -176,7 +176,7 @@ pub struct Application {
     pub layer_shell: LayerShell,
     pub clipboard: Clipboard,
     pub viewporter: SimpleGlobal<WpViewporter, 1>,
-    pub text_input_manager: SimpleGlobal<ZwpTextInputManagerV3, 1>,
+    pub text_input_manager: Option<SimpleGlobal<ZwpTextInputManagerV3, 1>>,
     pub text_input: Option<ZwpTextInputV3>,
 
     cursor_shape_manager: CursorShapeManager,
@@ -209,8 +209,12 @@ impl Application {
             CursorShapeManager::bind(&globals, &qh).expect("cursor shape manager not available");
         let viewporter = SimpleGlobal::<WpViewporter, 1>::bind(&globals, &qh)
             .expect("wp_viewporter not available");
-        let text_input_manager = SimpleGlobal::<ZwpTextInputManagerV3, 1>::bind(&globals, &qh)
-            .expect("zwp_text_input_manager_v3 not available");
+
+        // TODO: Enable IME support in future
+        // let text_input_manager = SimpleGlobal::<ZwpTextInputManagerV3,
+        // 1>::bind(&globals, &qh) .expect("zwp_text_input_manager_v3 not
+        // available");
+
         let clipboard = unsafe { Clipboard::new(conn.display().id().as_ptr() as *mut _) };
 
         Self {
@@ -228,7 +232,7 @@ impl Application {
             layer_shell,
             clipboard,
             viewporter,
-            text_input_manager,
+            text_input_manager: None,
             text_input: None,
             cursor_shape_manager,
             last_pointer_enter_serial: None,
@@ -747,9 +751,11 @@ impl SeatHandler for Application {
                 }
             }
             if self.text_input.is_none() {
-                if let Ok(manager) = self.text_input_manager.get() {
-                    self.text_input = Some(manager.get_text_input(&seat, qh, ()));
-                    trace!("[MAIN] Created zwp_text_input_v3");
+                if let Some(manager) = self.text_input_manager.as_ref() {
+                    if let Ok(manager) = manager.get() {
+                        self.text_input = Some(manager.get_text_input(&seat, qh, ()));
+                        trace!("[MAIN] Created zwp_text_input_v3");
+                    }
                 }
             }
         }
@@ -793,7 +799,7 @@ impl AsMut<SimpleGlobal<WpViewporter, 1>> for Application {
 
 impl AsMut<SimpleGlobal<ZwpTextInputManagerV3, 1>> for Application {
     fn as_mut(&mut self) -> &mut SimpleGlobal<ZwpTextInputManagerV3, 1> {
-        &mut self.text_input_manager
+        self.text_input_manager.as_mut().unwrap()
     }
 }
 
