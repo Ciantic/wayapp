@@ -34,7 +34,7 @@ use wayland_client::protocol::wl_surface::WlSurface;
 /// WGPU renderer for EGUI.
 pub struct EguiWgpuRenderer {
     egui_context: Context,
-    renderer: Renderer,
+    egui_renderer: Renderer,
 
     // Fields are dropped in declaration order. `wgpu_surface` must come before
     // `wgpu_device`, and `wgpu_device` before `wgpu_instance` — otherwise the
@@ -89,7 +89,7 @@ impl EguiWgpuRenderer {
             .get(0)
             .unwrap_or(&wgpu::TextureFormat::Bgra8Unorm);
 
-        let renderer = Renderer::new(
+        let egui_renderer = Renderer::new(
             &wgpu_device,
             output_format,
             RendererOptions {
@@ -101,7 +101,7 @@ impl EguiWgpuRenderer {
 
         EguiWgpuRenderer {
             egui_context: egui_context.clone(),
-            renderer,
+            egui_renderer,
             wgpu_surface: Some(surface),
             wgpu_device,
             wgpu_queue,
@@ -285,11 +285,15 @@ impl EguiWgpuRenderer {
             .tessellate(egui_fulloutput.shapes, egui_fulloutput.pixels_per_point);
 
         for (id, image_delta) in &egui_fulloutput.textures_delta.set {
-            self.renderer
-                .update_texture(&self.wgpu_device, &self.wgpu_queue, *id, image_delta);
+            self.egui_renderer.update_texture(
+                &self.wgpu_device,
+                &self.wgpu_queue,
+                *id,
+                image_delta,
+            );
         }
 
-        self.renderer.update_buffers(
+        self.egui_renderer.update_buffers(
             &self.wgpu_device,
             &self.wgpu_queue,
             &mut encoder,
@@ -316,10 +320,10 @@ impl EguiWgpuRenderer {
         });
 
         // Cleanup any textures marked for deletion by EGUI before rendering
-        self.renderer
+        self.egui_renderer
             .render(&mut rpass.forget_lifetime(), &tris, &screen_descriptor);
         for x in &egui_fulloutput.textures_delta.free {
-            self.renderer.free_texture(x)
+            self.egui_renderer.free_texture(x)
         }
 
         // Submit commands and present
