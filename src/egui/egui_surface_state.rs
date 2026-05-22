@@ -192,11 +192,11 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
 
     /// Process EGUI frame (layout, input) without GPU rendering
     /// This is cheap and can be called frequently
-    fn process_egui_frame(&mut self, ui: &mut impl FnMut(&egui::Context)) {
+    fn process_egui_frame(&mut self, ui: &mut impl FnMut(&mut egui::Ui)) {
         let raw_input = self.input_state.take_raw_input();
         self.egui_context
             .set_pixels_per_point(self.physical_scale() as f32);
-        let full_output = self.egui_context.run(raw_input, ui);
+        let full_output = self.egui_context.run_ui(raw_input, ui);
         for command in &full_output.platform_output.commands {
             self.input_state.handle_output_command(command);
         }
@@ -229,7 +229,7 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
     }
 
     /// Full render of EGUI frame (layout, input + GPU rendering)
-    fn render(&mut self, ui: &mut impl FnMut(&egui::Context)) {
+    fn render(&mut self, ui: &mut impl FnMut(&mut egui::Ui)) {
         self.process_egui_frame(ui);
 
         if self.suspended {
@@ -316,7 +316,7 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
         &mut self,
         app: &mut Application,
         events: &[WaylandEvent],
-        ui: &mut impl FnMut(&egui::Context),
+        ui: &mut impl FnMut(&mut egui::Ui),
     ) {
         for event in events {
             if let Some(surface) = event.get_wl_surface() {
@@ -494,7 +494,7 @@ pub trait OptionEguiSurfaceStateExt<T: Into<Kind> + Clone> {
         &mut self,
         app: &mut Application,
         events: &[WaylandEvent],
-        ui: &mut impl FnMut(&egui::Context),
+        ui: &mut impl FnMut(&mut egui::Ui),
     ) -> ();
 }
 
@@ -507,7 +507,7 @@ impl<T: Into<Kind> + Clone> OptionEguiSurfaceStateExt<T> for Option<EguiSurfaceS
         &mut self,
         app: &mut Application,
         events: &[WaylandEvent],
-        ui: &mut impl FnMut(&egui::Context),
+        ui: &mut impl FnMut(&mut egui::Ui),
     ) -> () {
         if let Some(surface_state) = self {
             surface_state.handle_events(app, events, ui);

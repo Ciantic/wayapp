@@ -1,5 +1,4 @@
 use egui::CentralPanel;
-use egui::Context;
 use log::debug;
 use smithay_client_toolkit::shell::WaylandSurface;
 use smithay_client_toolkit::shell::wlr_layer::Anchor;
@@ -39,10 +38,10 @@ impl EguiApp {
         }
     }
 
-    fn ui(&mut self, ctx: &Context) {
-        ctx.set_visuals(egui::Visuals::light());
+    fn ui(&mut self, ui: &mut egui::Ui) {
+        ui.ctx().set_visuals(egui::Visuals::light());
 
-        CentralPanel::default().show(ctx, |ui| {
+        CentralPanel::default().show_inside(ui, |ui| {
             ui.heading("Egui WGPU / Smithay example");
 
             ui.separator();
@@ -166,7 +165,7 @@ fn main() {
             match event {
                 AppEvent::WaylandDispatch(token) => {
                     let events = app.dispatch_pending(token);
-                    egui_surface.handle_events(&mut app, &events, &mut |ctx| my_app.ui(ctx));
+                    egui_surface.handle_events(&mut app, &events, &mut |ui| my_app.ui(ui));
                 } // Handle other events here
             }
         }

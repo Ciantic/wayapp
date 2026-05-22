@@ -1,5 +1,5 @@
 use egui::CentralPanel;
-use egui::Context;
+
 use smithay_client_toolkit::shell::WaylandSurface;
 use smithay_client_toolkit::shell::wlr_layer::Anchor;
 use smithay_client_toolkit::shell::wlr_layer::KeyboardInteractivity;
@@ -30,16 +30,16 @@ impl EguiApp {
         self.fps = fps;
     }
 
-    fn ui(&mut self, ctx: &Context) {
+    fn ui(&mut self, ui: &mut egui::Ui) {
         let mut visuals = egui::Visuals::dark();
         visuals.panel_fill = egui::Color32::from_rgba_unmultiplied(255, 128, 128, 128);
-        ctx.set_visuals(visuals);
+        ui.ctx().set_visuals(visuals);
 
-        CentralPanel::default().show(ctx, |ui| {
+        CentralPanel::default().show_inside(ui, |ui| {
             ui.heading("Egui Transparency Example");
             ui.label(format!("Last render time: {:?}", self.last_render));
             ui.label(format!("FPS between two last frames: {:.2}", self.fps));
-            ui.label(format!("Frame number: {}", ctx.cumulative_pass_nr()));
+            ui.label(format!("Frame number: {}", ui.ctx().cumulative_pass_nr()));
             ui.add(egui::Spinner::new());
             ui.add(egui::Spinner::new());
             ui.add(egui::Spinner::new());
@@ -114,8 +114,8 @@ fn main() {
                 AppEvent::WaylandDispatch(token) => {
                     // Normal Wayland event dispatching to the windows and surfaces
                     let events = app.dispatch_pending(token);
-                    example_window_app.handle_events(&mut app, &events, &mut |ctx| myapp1.ui(ctx));
-                    layer_surface_app.handle_events(&mut app, &events, &mut |ctx| myapp2.ui(ctx));
+                    example_window_app.handle_events(&mut app, &events, &mut |ui| myapp1.ui(ui));
+                    layer_surface_app.handle_events(&mut app, &events, &mut |ui| myapp2.ui(ui));
 
                     // Update FPS info
                     if let Some(last_render) = example_window_app.get_frame_timings() {
