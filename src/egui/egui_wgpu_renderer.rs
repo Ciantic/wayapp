@@ -196,8 +196,6 @@ impl EguiWgpuRenderer {
     /// Follows the recommended pattern for handling surface acquisition:
     /// https://docs.rs/wgpu/latest/wgpu/enum.CurrentSurfaceTexture.html
     fn acquire_surface_texture(&mut self) -> Option<wgpu::SurfaceTexture> {
-        let mut recreate_surface = false;
-
         {
             let surface = match &self.wgpu_surface {
                 Some(surface) => surface,
@@ -219,7 +217,11 @@ impl EguiWgpuRenderer {
                 }
                 wgpu::CurrentSurfaceTexture::Lost => {
                     log::warn!("[EGUI] Surface was lost, recreating and reconfiguring");
-                    recreate_surface = true;
+                    self.wgpu_surface = Some(Self::create_wgpu_surface(
+                        &self.wgpu_instance,
+                        &self.wl_conn,
+                        &self.wl_surface,
+                    ));
 
                     // TODO: From the docs, quote:
                     //
@@ -243,14 +245,6 @@ impl EguiWgpuRenderer {
                     return None;
                 }
             }
-        }
-
-        if recreate_surface {
-            self.wgpu_surface = Some(Self::create_wgpu_surface(
-                &self.wgpu_instance,
-                &self.wl_conn,
-                &self.wl_surface,
-            ));
         }
 
         self.reconfigure_surface(self.width, self.height);
