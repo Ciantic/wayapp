@@ -1,5 +1,4 @@
 use egui::CentralPanel;
-
 use smithay_client_toolkit::shell::WaylandSurface;
 use smithay_client_toolkit::shell::wlr_layer::Anchor;
 use smithay_client_toolkit::shell::wlr_layer::KeyboardInteractivity;
@@ -33,7 +32,7 @@ impl EguiApp {
     fn ui(&mut self, ui: &mut egui::Ui) {
         let mut visuals = egui::Visuals::dark();
         visuals.panel_fill = egui::Color32::from_rgba_unmultiplied(255, 128, 128, 128);
-        ui.ctx().set_visuals(visuals);
+        ui.set_visuals(visuals);
 
         CentralPanel::default().show_inside(ui, |ui| {
             ui.heading("Egui Transparency Example");

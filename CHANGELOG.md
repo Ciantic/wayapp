@@ -29,6 +29,8 @@ If you were calling methods on `ctx` directly (e.g. `ctx.set_visuals(...)`, `ctx
 + ui.ctx().set_visuals(egui::Visuals::dark());
 ```
 
+However `set_visuals()` is also available on `ui.set_visuals(...)`.
+
 #### `CentralPanel::show` is deprecated
 
 Use `show_inside` instead:
