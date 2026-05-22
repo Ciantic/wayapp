@@ -18,12 +18,14 @@ use wayland_client::Connection;
 use wayland_client::Proxy;
 use wayland_client::protocol::wl_surface::WlSurface;
 
+/// WGPU renderer for EGUI.
 pub struct EguiWgpuRenderer {
     egui_context: Context,
     renderer: Renderer,
-    /// None when the surface has been suspended to free GPU resources.
-    /// The Device, Queue, and Renderer are kept alive to preserve texture
-    /// state.
+
+    // Fields are dropped in declaration order. `surface` must come before
+    // `device`, and `device` before `saved_instance` — otherwise the surface
+    // cleanup will panic trying to access a device that no longer exists.
     surface: Option<Surface<'static>>,
     device: Device,
     queue: Queue,
