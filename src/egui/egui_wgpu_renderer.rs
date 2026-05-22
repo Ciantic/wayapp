@@ -21,13 +21,21 @@ use wayland_client::protocol::wl_surface::WlSurface;
 pub struct EguiWgpuRenderer {
     egui_context: Context,
     renderer: Renderer,
-    surface: Surface<'static>,
+    /// None when the surface has been suspended to free GPU resources.
+    /// The Device, Queue, and Renderer are kept alive to preserve texture
+    /// state.
+    surface: Option<Surface<'static>>,
     device: Device,
     queue: Queue,
     surface_config: Option<SurfaceConfiguration>,
     output_format: TextureFormat,
     width: u32,
     height: u32,
+    /// Saved state for recreating the surface on resume.
+    /// The wgpu Instance must be the same one that owns the Device/Queue.
+    saved_wl_surface: WlSurface,
+    saved_conn: Connection,
+    saved_instance: wgpu::Instance,
 }
 
 impl EguiWgpuRenderer {
@@ -90,7 +98,7 @@ impl EguiWgpuRenderer {
 
         EguiWgpuRenderer {
             renderer: egui_renderer,
-            surface,
+            surface: Some(surface),
             device,
             queue,
             surface_config: None,
@@ -98,7 +106,53 @@ impl EguiWgpuRenderer {
             width: 0,
             height: 0,
             egui_context: egui_context.clone(),
+            saved_wl_surface: wl_surface.clone(),
+            saved_conn: conn.clone(),
+            saved_instance: instance,
         }
+    }
+
+    /// Suspend the renderer — drops the WGPU surface and configuration to
+    /// free GPU resources. The device, queue, and egui renderer are kept
+    /// alive to preserve texture state.
+    pub fn suspend(&mut self) {
+        if self.surface.is_some() {
+            log::trace!("[EGUI] Suspending WGPU surface to free GPU resources");
+            self.surface = None;
+            self.surface_config = None;
+            self.width = 0;
+            self.height = 0;
+        }
+    }
+
+    /// Resume the renderer — recreates the WGPU surface from the saved
+    /// Wayland surface handle, using the same Instance that owns the Device.
+    pub fn resume(&mut self) {
+        if self.surface.is_none() {
+            log::trace!("[EGUI] Resuming WGPU surface");
+            let raw_display_handle = RawDisplayHandle::Wayland(WaylandDisplayHandle::new(
+                NonNull::new(self.saved_conn.backend().display_ptr() as *mut _)
+                    .expect("Wayland display pointer was null"),
+            ));
+            let raw_window_handle = RawWindowHandle::Wayland(WaylandWindowHandle::new(
+                NonNull::new(self.saved_wl_surface.id().as_ptr() as *mut _)
+                    .expect("Wayland surface handle was null"),
+            ));
+            let surface = unsafe {
+                self.saved_instance
+                    .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::RawHandle {
+                        raw_display_handle: Some(raw_display_handle),
+                        raw_window_handle,
+                    })
+                    .expect("Failed to create WGPU surface")
+            };
+            self.surface = Some(surface);
+        }
+    }
+
+    /// Returns true if the surface is currently suspended
+    pub fn is_suspended(&self) -> bool {
+        self.surface.is_none()
     }
 
     /// Resize and reconfigure the WGPU surface
@@ -117,11 +171,14 @@ impl EguiWgpuRenderer {
             view_formats: vec![self.output_format],
             desired_maximum_frame_latency: 2,
         };
-        self.surface.configure(&self.device, &config);
+        if let Some(surface) = &self.surface {
+            surface.configure(&self.device, &config);
+        }
         self.surface_config = Some(config);
     }
 
     /// Renders EGUI output to the WGPU surface
+    /// Returns silently if the surface is suspended.
     pub fn render_to_wgpu(
         &mut self,
         egui_fulloutput: egui::FullOutput,
@@ -129,19 +186,59 @@ impl EguiWgpuRenderer {
         height: u32,
         pixels_per_point: f32,
     ) {
-        if (width != self.width) || (height != self.height) {
+        // Reconfigure if size changed (must happen before borrowing surface)
+        let needs_reconfig = (width != self.width) || (height != self.height);
+        if needs_reconfig {
             self.reconfigure_surface(width, height);
         }
 
-        let surface_texture = match self.surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(texture) => texture,
-            wgpu::CurrentSurfaceTexture::Suboptimal(texture) => {
-                self.reconfigure_surface(self.width, self.height);
-                texture
+        // Get surface texture in a scoped block so the immutable borrow on
+        // self.surface is released before potential reconfig below.
+        let surface_texture: Option<wgpu::SurfaceTexture> = {
+            let surface = match &self.surface {
+                Some(s) => s,
+                None => {
+                    log::trace!("[EGUI] Skipping render, surface is suspended");
+                    return;
+                }
+            };
+            match surface.get_current_texture() {
+                wgpu::CurrentSurfaceTexture::Success(texture) => Some(texture),
+                wgpu::CurrentSurfaceTexture::Suboptimal(texture) => {
+                    // Consume the Suboptimal texture to release it
+                    drop(texture);
+                    // signal we need a retry
+                    None
+                }
+                status => {
+                    log::warn!("Failed to acquire surface texture: {:?}", status);
+                    return;
+                }
             }
-            status => {
-                log::warn!("Failed to acquire surface texture: {:?}", status);
-                return;
+        };
+
+        let surface_texture = match surface_texture {
+            Some(t) => t,
+            None => {
+                // Reconfigure and retry
+                self.reconfigure_surface(self.width, self.height);
+                match self.surface.as_ref() {
+                    Some(s) => match s.get_current_texture() {
+                        wgpu::CurrentSurfaceTexture::Success(t) => t,
+                        wgpu::CurrentSurfaceTexture::Suboptimal(t) => t,
+                        status => {
+                            log::warn!(
+                                "Failed to acquire surface texture after reconfig: {:?}",
+                                status
+                            );
+                            return;
+                        }
+                    },
+                    None => {
+                        log::trace!("[EGUI] Surface disappeared during render retry");
+                        return;
+                    }
+                }
             }
         };
 

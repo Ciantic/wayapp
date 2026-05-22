@@ -32,7 +32,7 @@ pub struct EguiSurfaceState<T: Into<Kind> + Clone> {
     t: T,
     kind: Kind,
     // renderer: EguiWgpuRendererThread, // for async rendering thread
-    renderer: EguiWgpuRenderer, // for direct rendering (sync)
+    renderer: EguiWgpuRenderer, // surface can be suspended via renderer.suspend()
     input_state: WaylandToEguiInput,
     init_width: u32,
     init_height: u32,
@@ -116,11 +116,31 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
         height: u32,
         window_state: Option<WindowState>,
     ) {
+        let was_suspended = self.suspended;
         self.resize_viewport(app, width, height);
         self.width = width.max(1);
         self.height = height.max(1);
         self.input_state.set_screen_size(self.width, self.height);
         self.suspended = window_state.map_or(false, |state| state.contains(WindowState::SUSPENDED));
+
+        if self.suspended && !was_suspended {
+            // Surface just got suspended — destroy the WGPU surface to free GPU
+            // resources. Device, queue, and egui renderer are kept to preserve
+            // texture state (EGUI doesn't handle renderer recreate well).
+            trace!(
+                "[EGUI] Suspending renderer for surface {:?}",
+                self.wl_surface().id()
+            );
+            self.renderer.suspend();
+        } else if !self.suspended && was_suspended {
+            // Surface just got resumed — recreate the WGPU surface
+            trace!(
+                "[EGUI] Resuming renderer for surface {:?}",
+                self.wl_surface().id()
+            );
+            self.renderer.resume();
+        }
+
         self.frame_scheduler.set_fps_target(
             if window_state.map_or(false, |state| state.contains(WindowState::SUSPENDED)) {
                 0.05 // 0.0001
