@@ -33,8 +33,6 @@ pub struct EguiWgpuRenderer {
     output_format: TextureFormat,
     width: u32,
     height: u32,
-    /// Saved state for recreating the surface on resume.
-    /// The wgpu Instance must be the same one that owns the Device/Queue.
     saved_wl_surface: WlSurface,
     saved_conn: Connection,
     saved_instance: wgpu::Instance,
@@ -46,27 +44,16 @@ impl EguiWgpuRenderer {
         wl_surface: &WlSurface,
         conn: &Connection,
     ) -> EguiWgpuRenderer {
-        let raw_display_handle = RawDisplayHandle::Wayland(WaylandDisplayHandle::new(
-            NonNull::new(conn.backend().display_ptr() as *mut _)
-                .expect("Wayland display pointer was null"),
-        ));
-        let raw_window_handle = RawWindowHandle::Wayland(WaylandWindowHandle::new(
-            NonNull::new(wl_surface.id().as_ptr() as *mut _)
-                .expect("Wayland surface handle was null"),
-        ));
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
 
-        let surface = unsafe {
-            instance
-                .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::RawHandle {
-                    raw_display_handle: Some(raw_display_handle),
-                    raw_window_handle,
-                })
-                .expect("Failed to create WGPU surface")
-        };
+        let surface = Self::create_surface(
+            &instance,
+            conn.backend().display_ptr() as *mut _,
+            wl_surface.id().as_ptr() as *mut _,
+        );
 
         let adapter =
             futures::executor::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
@@ -88,7 +75,7 @@ impl EguiWgpuRenderer {
             .get(0)
             .unwrap_or(&wgpu::TextureFormat::Bgra8Unorm);
 
-        let egui_renderer = Renderer::new(
+        let renderer = Renderer::new(
             &device,
             output_format,
             RendererOptions {
@@ -99,7 +86,8 @@ impl EguiWgpuRenderer {
         );
 
         EguiWgpuRenderer {
-            renderer: egui_renderer,
+            egui_context: egui_context.clone(),
+            renderer,
             surface: Some(surface),
             device,
             queue,
@@ -107,7 +95,6 @@ impl EguiWgpuRenderer {
             output_format,
             width: 0,
             height: 0,
-            egui_context: egui_context.clone(),
             saved_wl_surface: wl_surface.clone(),
             saved_conn: conn.clone(),
             saved_instance: instance,
@@ -132,29 +119,34 @@ impl EguiWgpuRenderer {
     pub fn resume(&mut self) {
         if self.surface.is_none() {
             log::trace!("[EGUI] Resuming WGPU surface");
-            let raw_display_handle = RawDisplayHandle::Wayland(WaylandDisplayHandle::new(
-                NonNull::new(self.saved_conn.backend().display_ptr() as *mut _)
-                    .expect("Wayland display pointer was null"),
+            self.surface = Some(Self::create_surface(
+                &self.saved_instance,
+                self.saved_conn.backend().display_ptr() as *mut _,
+                self.saved_wl_surface.id().as_ptr() as *mut _,
             ));
-            let raw_window_handle = RawWindowHandle::Wayland(WaylandWindowHandle::new(
-                NonNull::new(self.saved_wl_surface.id().as_ptr() as *mut _)
-                    .expect("Wayland surface handle was null"),
-            ));
-            let surface = unsafe {
-                self.saved_instance
-                    .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::RawHandle {
-                        raw_display_handle: Some(raw_display_handle),
-                        raw_window_handle,
-                    })
-                    .expect("Failed to create WGPU surface")
-            };
-            self.surface = Some(surface);
         }
     }
 
-    /// Returns true if the surface is currently suspended
-    pub fn is_suspended(&self) -> bool {
-        self.surface.is_none()
+    /// Create a WGPU surface from raw Wayland display/surface pointers.
+    fn create_surface(
+        instance: &wgpu::Instance,
+        display_ptr: *mut std::ffi::c_void,
+        surface_id_ptr: *mut std::ffi::c_void,
+    ) -> Surface<'static> {
+        let raw_display_handle = RawDisplayHandle::Wayland(WaylandDisplayHandle::new(
+            NonNull::new(display_ptr).expect("Wayland display pointer was null"),
+        ));
+        let raw_window_handle = RawWindowHandle::Wayland(WaylandWindowHandle::new(
+            NonNull::new(surface_id_ptr).expect("Wayland surface handle was null"),
+        ));
+        unsafe {
+            instance
+                .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::RawHandle {
+                    raw_display_handle: Some(raw_display_handle),
+                    raw_window_handle,
+                })
+                .expect("Failed to create WGPU surface")
+        }
     }
 
     /// Resize and reconfigure the WGPU surface
@@ -188,6 +180,12 @@ impl EguiWgpuRenderer {
         height: u32,
         pixels_per_point: f32,
     ) {
+        // EGUI Screen descriptor for this frame
+        let screen_descriptor = ScreenDescriptor {
+            size_in_pixels: [width, height],
+            pixels_per_point,
+        };
+
         // Reconfigure if size changed (must happen before borrowing surface)
         let needs_reconfig = (width != self.width) || (height != self.height);
         if needs_reconfig {
@@ -250,38 +248,33 @@ impl EguiWgpuRenderer {
         let mut encoder = self.device.create_command_encoder(&Default::default());
 
         // Clear pass
-        {
-            let _ = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("egui clear pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &texture_view,
-                    resolve_target: None,
-                    depth_slice: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-        }
-
-        let screen_descriptor = ScreenDescriptor {
-            size_in_pixels: [width, height],
-            pixels_per_point,
-        };
+        let _ = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("egui clear pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &texture_view,
+                resolve_target: None,
+                depth_slice: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
 
         // Draw EGUI shapes with WGPU
         let tris = self
             .egui_context
             .tessellate(egui_fulloutput.shapes, egui_fulloutput.pixels_per_point);
+
         for (id, image_delta) in &egui_fulloutput.textures_delta.set {
             self.renderer
                 .update_texture(&self.device, &self.queue, *id, image_delta);
         }
+
         self.renderer.update_buffers(
             &self.device,
             &self.queue,
@@ -289,6 +282,8 @@ impl EguiWgpuRenderer {
             &tris,
             &screen_descriptor,
         );
+
+        // Render pass to draw EGUI output to the surface
         let rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: &texture_view,
@@ -306,12 +301,14 @@ impl EguiWgpuRenderer {
             multiview_mask: None,
         });
 
+        // Cleanup any textures marked for deletion by EGUI before rendering
         self.renderer
             .render(&mut rpass.forget_lifetime(), &tris, &screen_descriptor);
         for x in &egui_fulloutput.textures_delta.free {
             self.renderer.free_texture(x)
         }
 
+        // Submit commands and present
         self.queue.submit(Some(encoder.finish()));
         surface_texture.present();
     }
