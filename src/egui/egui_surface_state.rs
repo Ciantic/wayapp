@@ -5,8 +5,6 @@
 
 use crate::Application;
 use crate::EguiWgpuRenderer;
-#[allow(unused_imports)]
-use crate::EguiWgpuRendererThread;
 use crate::FrameScheduler;
 use crate::Kind;
 use crate::WaylandEvent;

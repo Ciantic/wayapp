@@ -95,6 +95,7 @@ impl WaylandToEguiInput {
                 );
                 if scroll_delta != egui::Vec2::ZERO {
                     self.events.push(Event::MouseWheel {
+                        phase: egui::TouchPhase::End,
                         unit: egui::MouseWheelUnit::Line,
                         delta: scroll_delta,
                         modifiers: self.modifiers,

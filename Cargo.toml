@@ -18,14 +18,14 @@ wayland-protocols-wlr = "0.3.12"
 
 # Used only by egui/wgpu backend
 futures = "0.3.32"
-egui = "0.33.3"
-egui-wgpu = "0.33.3"
+egui = "0.34.2"
+egui-wgpu = "0.34.2"
 raw-window-handle = "0.6.2"
-wgpu = "27.0.1"
+wgpu = "29.0.3"
 
 [dev-dependencies]
 env_logger = "0.11.10"
-tokio = { version = "1.51.1", features = [
+tokio = { version = "1.52.3", features = [
     "rt",
     "time",
     "net",
@@ -33,7 +33,7 @@ tokio = { version = "1.51.1", features = [
     "rt-multi-thread",
     "sync",
 ] }
-hotpath = { version = "0.9", features = ["hotpath", "hotpath-alloc"] }
+hotpath = { version = "0.16", features = ["hotpath", "hotpath-alloc"] }
 
 [lib]
 name = "wayapp"

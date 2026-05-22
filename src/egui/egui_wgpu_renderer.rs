@@ -44,15 +44,15 @@ impl EguiWgpuRenderer {
             NonNull::new(wl_surface.id().as_ptr() as *mut _)
                 .expect("Wayland surface handle was null"),
         ));
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
-            ..Default::default()
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
 
         let surface = unsafe {
             instance
                 .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::RawHandle {
-                    raw_display_handle,
+                    raw_display_handle: Some(raw_display_handle),
                     raw_window_handle,
                 })
                 .expect("Failed to create WGPU surface")
@@ -134,9 +134,13 @@ impl EguiWgpuRenderer {
         }
 
         let surface_texture = match self.surface.get_current_texture() {
-            Ok(texture) => texture,
-            Err(e) => {
-                log::warn!("Failed to acquire surface texture: {:?}", e);
+            wgpu::CurrentSurfaceTexture::Success(texture) => texture,
+            wgpu::CurrentSurfaceTexture::Suboptimal(texture) => {
+                self.reconfigure_surface(self.width, self.height);
+                texture
+            }
+            status => {
+                log::warn!("Failed to acquire surface texture: {:?}", status);
                 return;
             }
         };
@@ -162,6 +166,7 @@ impl EguiWgpuRenderer {
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
         }
 
@@ -199,6 +204,7 @@ impl EguiWgpuRenderer {
             timestamp_writes: None,
             label: Some("egui main render pass"),
             occlusion_query_set: None,
+            multiview_mask: None,
         });
 
         self.renderer
