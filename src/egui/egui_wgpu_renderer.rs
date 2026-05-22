@@ -191,6 +191,53 @@ impl EguiWgpuRenderer {
         self.wgpu_surface_config = Some(config);
     }
 
+    /// Acquire the next surface texture, retrying once after a reconfigure if
+    /// the surface reports a suboptimal texture.
+    fn acquire_surface_texture(&mut self) -> Option<wgpu::SurfaceTexture> {
+        {
+            let surface = match &self.wgpu_surface {
+                Some(surface) => surface,
+                None => {
+                    log::trace!("[EGUI] Skipping render, surface is suspended");
+                    return None;
+                }
+            };
+
+            match surface.get_current_texture() {
+                wgpu::CurrentSurfaceTexture::Success(texture) => return Some(texture),
+                wgpu::CurrentSurfaceTexture::Suboptimal(texture) => {
+                    drop(texture);
+                }
+                status => {
+                    log::warn!("Failed to acquire surface texture: {:?}", status);
+                    return None;
+                }
+            }
+        }
+
+        self.reconfigure_surface(self.width, self.height);
+
+        let surface = match self.wgpu_surface.as_ref() {
+            Some(surface) => surface,
+            None => {
+                log::trace!("[EGUI] Surface disappeared during render retry");
+                return None;
+            }
+        };
+
+        match surface.get_current_texture() {
+            wgpu::CurrentSurfaceTexture::Success(texture)
+            | wgpu::CurrentSurfaceTexture::Suboptimal(texture) => Some(texture),
+            status => {
+                log::warn!(
+                    "Failed to acquire surface texture after reconfig: {:?}",
+                    status
+                );
+                None
+            }
+        }
+    }
+
     /// Renders EGUI output to the WGPU surface
     /// Returns silently if the surface is suspended.
     pub fn render_to_wgpu(
@@ -212,53 +259,10 @@ impl EguiWgpuRenderer {
             self.reconfigure_surface(width, height);
         }
 
-        // Get surface texture in a scoped block so the immutable borrow on
-        // self.surface is released before potential reconfig below.
-        let surface_texture: Option<wgpu::SurfaceTexture> = {
-            let surface = match &self.wgpu_surface {
-                Some(s) => s,
-                None => {
-                    log::trace!("[EGUI] Skipping render, surface is suspended");
-                    return;
-                }
-            };
-            match surface.get_current_texture() {
-                wgpu::CurrentSurfaceTexture::Success(texture) => Some(texture),
-                wgpu::CurrentSurfaceTexture::Suboptimal(texture) => {
-                    // Consume the Suboptimal texture to release it
-                    drop(texture);
-                    // signal we need a retry
-                    None
-                }
-                status => {
-                    log::warn!("Failed to acquire surface texture: {:?}", status);
-                    return;
-                }
-            }
-        };
-
-        let surface_texture = match surface_texture {
-            Some(t) => t,
+        let surface_texture = match self.acquire_surface_texture() {
+            Some(texture) => texture,
             None => {
-                // Reconfigure and retry
-                self.reconfigure_surface(self.width, self.height);
-                match self.wgpu_surface.as_ref() {
-                    Some(s) => match s.get_current_texture() {
-                        wgpu::CurrentSurfaceTexture::Success(t) => t,
-                        wgpu::CurrentSurfaceTexture::Suboptimal(t) => t,
-                        status => {
-                            log::warn!(
-                                "Failed to acquire surface texture after reconfig: {:?}",
-                                status
-                            );
-                            return;
-                        }
-                    },
-                    None => {
-                        log::trace!("[EGUI] Surface disappeared during render retry");
-                        return;
-                    }
-                }
+                return;
             }
         };
 
