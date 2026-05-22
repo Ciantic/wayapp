@@ -205,8 +205,10 @@ impl EguiWgpuRenderer {
 
             match surface.get_current_texture() {
                 wgpu::CurrentSurfaceTexture::Success(texture) => return Some(texture),
-                wgpu::CurrentSurfaceTexture::Suboptimal(texture) => {
-                    drop(texture);
+                wgpu::CurrentSurfaceTexture::Suboptimal(_texture) => {
+                    log::warn!(
+                        "[EGUI] Surface texture is suboptimal, reconfiguring surface and retrying"
+                    );
                 }
                 status => {
                     log::warn!("Failed to acquire surface texture: {:?}", status);
