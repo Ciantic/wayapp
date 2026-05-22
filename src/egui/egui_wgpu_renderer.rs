@@ -44,12 +44,12 @@ pub struct EguiWgpuRenderer {
     wgpu_device: Device,
     wgpu_queue: Queue,
     wgpu_surface_config: Option<SurfaceConfiguration>,
+    wgpu_instance: wgpu::Instance,
     output_format: TextureFormat,
     width: u32,
     height: u32,
     wl_surface: WlSurface,
     wl_conn: Connection,
-    wgpu_instance: wgpu::Instance,
 }
 
 impl EguiWgpuRenderer {
