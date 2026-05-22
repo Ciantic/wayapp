@@ -191,9 +191,13 @@ impl EguiWgpuRenderer {
         self.wgpu_surface_config = Some(config);
     }
 
-    /// Acquire the next surface texture, retrying once after a reconfigure if
-    /// the surface reports a suboptimal texture.
+    /// Acquire the next surface texture
+    ///
+    /// Follows the recommended pattern for handling surface acquisition:
+    /// https://docs.rs/wgpu/latest/wgpu/enum.CurrentSurfaceTexture.html
     fn acquire_surface_texture(&mut self) -> Option<wgpu::SurfaceTexture> {
+        let mut recreate_surface = false;
+
         {
             let surface = match &self.wgpu_surface {
                 Some(surface) => surface,
@@ -210,11 +214,43 @@ impl EguiWgpuRenderer {
                         "[EGUI] Surface texture is suboptimal, reconfiguring surface and retrying"
                     );
                 }
-                status => {
-                    log::warn!("Failed to acquire surface texture: {:?}", status);
+                wgpu::CurrentSurfaceTexture::Outdated => {
+                    log::trace!("[EGUI] Surface configuration is outdated, reconfiguring");
+                }
+                wgpu::CurrentSurfaceTexture::Lost => {
+                    log::warn!("[EGUI] Surface was lost, recreating and reconfiguring");
+                    recreate_surface = true;
+
+                    // TODO: From the docs, quote:
+                    //
+                    // https://docs.rs/wgpu/latest/wgpu/enum.CurrentSurfaceTexture.html
+                    // > If the device as a whole is lost (see
+                    // > set_device_lost_callback()), then you need to recreate
+                    // > the device and all resources. Otherwise, call
+                    // > Instance::create_surface() to recreate the surface,
+                    // > then Surface::configure(), and try again.
+                }
+                wgpu::CurrentSurfaceTexture::Timeout => {
+                    log::trace!("[EGUI] Surface acquisition timed out, skipping frame");
+                    return None;
+                }
+                wgpu::CurrentSurfaceTexture::Occluded => {
+                    log::trace!("[EGUI] Surface is occluded, skipping frame");
+                    return None;
+                }
+                wgpu::CurrentSurfaceTexture::Validation => {
+                    log::warn!("[EGUI] Surface acquisition failed validation");
                     return None;
                 }
             }
+        }
+
+        if recreate_surface {
+            self.wgpu_surface = Some(Self::create_wgpu_surface(
+                &self.wgpu_instance,
+                &self.wl_conn,
+                &self.wl_surface,
+            ));
         }
 
         self.reconfigure_surface(self.width, self.height);
@@ -228,12 +264,15 @@ impl EguiWgpuRenderer {
         };
 
         match surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(texture)
-            | wgpu::CurrentSurfaceTexture::Suboptimal(texture) => Some(texture),
-            status => {
+            wgpu::CurrentSurfaceTexture::Success(texture) => Some(texture),
+            wgpu::CurrentSurfaceTexture::Suboptimal(texture) => {
+                log::warn!("[EGUI] Surface texture is suboptimal after retry, presenting anyway");
+                Some(texture)
+            }
+            retry => {
                 log::warn!(
-                    "Failed to acquire surface texture after reconfig: {:?}",
-                    status
+                    "[EGUI] Failed to acquire surface texture after retry: {:?}, skipping frame",
+                    retry
                 );
                 None
             }
