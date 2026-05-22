@@ -63,11 +63,7 @@ impl EguiWgpuRenderer {
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
 
-        let surface = Self::create_surface(
-            &instance,
-            conn.backend().display_ptr() as *mut _,
-            wl_surface.id().as_ptr() as *mut _,
-        );
+        let surface = Self::create_wgpu_surface(&instance, conn, wl_surface);
 
         let adapter =
             futures::executor::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
@@ -133,26 +129,36 @@ impl EguiWgpuRenderer {
     pub fn resume(&mut self) {
         if self.wgpu_surface.is_none() {
             log::trace!("[EGUI] Resuming WGPU surface");
-            self.wgpu_surface = Some(Self::create_surface(
+            self.wgpu_surface = Some(Self::create_wgpu_surface(
                 &self.wgpu_instance,
-                self.wl_conn.backend().display_ptr() as *mut _,
-                self.wl_surface.id().as_ptr() as *mut _,
+                &self.wl_conn,
+                &self.wl_surface,
             ));
         }
     }
 
-    /// Create a WGPU surface from raw Wayland display/surface pointers.
-    fn create_surface(
+    /// Create a WGPU surface from Wayland connection and surface.
+    fn create_wgpu_surface(
         instance: &wgpu::Instance,
-        display_ptr: *mut std::ffi::c_void,
-        surface_id_ptr: *mut std::ffi::c_void,
+        conn: &Connection,
+        wl_surface: &WlSurface,
     ) -> Surface<'static> {
         let raw_display_handle = RawDisplayHandle::Wayland(WaylandDisplayHandle::new(
-            NonNull::new(display_ptr).expect("Wayland display pointer was null"),
+            NonNull::new(conn.backend().display_ptr() as *mut _)
+                .expect("Wayland display pointer was null"),
         ));
         let raw_window_handle = RawWindowHandle::Wayland(WaylandWindowHandle::new(
-            NonNull::new(surface_id_ptr).expect("Wayland surface handle was null"),
+            NonNull::new(wl_surface.id().as_ptr() as *mut _)
+                .expect("Wayland surface handle was null"),
         ));
+        // SAFETY: display_ptr and surface_id_ptr are valid Wayland pointers
+        // borrowed from the WlSurface and Connection stored in
+        // EguiWgpuRenderer, which outlive the returned Surface.
+        //
+        // We must use SurfaceTargetUnsafe::RawHandle because the safe
+        // SurfaceTarget enum has no Wayland variant — DisplayAndWindow
+        // requires HasDisplayHandle + HasWindowHandle, which Wayland
+        // proxy types don't implement.
         unsafe {
             instance
                 .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::RawHandle {
