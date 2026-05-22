@@ -18,24 +18,38 @@ use wayland_client::Connection;
 use wayland_client::Proxy;
 use wayland_client::protocol::wl_surface::WlSurface;
 
+// How this works:
+// 1. `new()` creates a wgpu Instance, Device, Queue, and the egui Renderer. The
+//    WlSurface + Connection are saved so the surface can be recreated.
+// 2. `suspend()` drops only the wgpu Surface (the swapchain), freeing GPU
+//    memory. The Device, Queue, and egui Renderer stay alive — dropping the
+//    egui Renderer would lose texture state and panic on the next frame.
+// 3. `resume()` recreates the wgpu Surface from the saved WlSurface, using the
+//    *same* Instance (a surface from a new Instance can't find the Device).
+//    Width/height are left at 0 to force a reconfigure on the next render.
+// 4. `render_to_wgpu()` acquires the next swapchain image, clears it, then
+//    draws the EGUI shapes / textures and presents. Skips silently if
+//    suspended.
+
 /// WGPU renderer for EGUI.
 pub struct EguiWgpuRenderer {
     egui_context: Context,
     renderer: Renderer,
 
-    // Fields are dropped in declaration order. `surface` must come before
-    // `device`, and `device` before `saved_instance` — otherwise the surface
-    // cleanup will panic trying to access a device that no longer exists.
-    surface: Option<Surface<'static>>,
-    device: Device,
-    queue: Queue,
-    surface_config: Option<SurfaceConfiguration>,
+    // Fields are dropped in declaration order. `wgpu_surface` must come before
+    // `wgpu_device`, and `wgpu_device` before `wgpu_instance` — otherwise the
+    // surface cleanup will panic trying to access a device that no longer
+    // exists.
+    wgpu_surface: Option<Surface<'static>>,
+    wgpu_device: Device,
+    wgpu_queue: Queue,
+    wgpu_surface_config: Option<SurfaceConfiguration>,
     output_format: TextureFormat,
     width: u32,
     height: u32,
-    saved_wl_surface: WlSurface,
-    saved_conn: Connection,
-    saved_instance: wgpu::Instance,
+    wl_surface: WlSurface,
+    wl_conn: Connection,
+    wgpu_instance: wgpu::Instance,
 }
 
 impl EguiWgpuRenderer {
@@ -62,7 +76,7 @@ impl EguiWgpuRenderer {
             }))
             .expect("Failed to find a suitable adapter");
 
-        let (device, queue) =
+        let (wgpu_device, wgpu_queue) =
             futures::executor::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
                 memory_hints: wgpu::MemoryHints::MemoryUsage,
                 ..Default::default()
@@ -76,7 +90,7 @@ impl EguiWgpuRenderer {
             .unwrap_or(&wgpu::TextureFormat::Bgra8Unorm);
 
         let renderer = Renderer::new(
-            &device,
+            &wgpu_device,
             output_format,
             RendererOptions {
                 msaa_samples: 1,
@@ -88,16 +102,16 @@ impl EguiWgpuRenderer {
         EguiWgpuRenderer {
             egui_context: egui_context.clone(),
             renderer,
-            surface: Some(surface),
-            device,
-            queue,
-            surface_config: None,
+            wgpu_surface: Some(surface),
+            wgpu_device,
+            wgpu_queue,
+            wgpu_surface_config: None,
             output_format,
             width: 0,
             height: 0,
-            saved_wl_surface: wl_surface.clone(),
-            saved_conn: conn.clone(),
-            saved_instance: instance,
+            wl_surface: wl_surface.clone(),
+            wl_conn: conn.clone(),
+            wgpu_instance: instance,
         }
     }
 
@@ -105,10 +119,10 @@ impl EguiWgpuRenderer {
     /// free GPU resources. The device, queue, and egui renderer are kept
     /// alive to preserve texture state.
     pub fn suspend(&mut self) {
-        if self.surface.is_some() {
+        if self.wgpu_surface.is_some() {
             log::trace!("[EGUI] Suspending WGPU surface to free GPU resources");
-            self.surface = None;
-            self.surface_config = None;
+            self.wgpu_surface = None;
+            self.wgpu_surface_config = None;
             self.width = 0;
             self.height = 0;
         }
@@ -117,12 +131,12 @@ impl EguiWgpuRenderer {
     /// Resume the renderer — recreates the WGPU surface from the saved
     /// Wayland surface handle, using the same Instance that owns the Device.
     pub fn resume(&mut self) {
-        if self.surface.is_none() {
+        if self.wgpu_surface.is_none() {
             log::trace!("[EGUI] Resuming WGPU surface");
-            self.surface = Some(Self::create_surface(
-                &self.saved_instance,
-                self.saved_conn.backend().display_ptr() as *mut _,
-                self.saved_wl_surface.id().as_ptr() as *mut _,
+            self.wgpu_surface = Some(Self::create_surface(
+                &self.wgpu_instance,
+                self.wl_conn.backend().display_ptr() as *mut _,
+                self.wl_surface.id().as_ptr() as *mut _,
             ));
         }
     }
@@ -165,10 +179,10 @@ impl EguiWgpuRenderer {
             view_formats: vec![self.output_format],
             desired_maximum_frame_latency: 2,
         };
-        if let Some(surface) = &self.surface {
-            surface.configure(&self.device, &config);
+        if let Some(surface) = &self.wgpu_surface {
+            surface.configure(&self.wgpu_device, &config);
         }
-        self.surface_config = Some(config);
+        self.wgpu_surface_config = Some(config);
     }
 
     /// Renders EGUI output to the WGPU surface
@@ -195,7 +209,7 @@ impl EguiWgpuRenderer {
         // Get surface texture in a scoped block so the immutable borrow on
         // self.surface is released before potential reconfig below.
         let surface_texture: Option<wgpu::SurfaceTexture> = {
-            let surface = match &self.surface {
+            let surface = match &self.wgpu_surface {
                 Some(s) => s,
                 None => {
                     log::trace!("[EGUI] Skipping render, surface is suspended");
@@ -222,7 +236,7 @@ impl EguiWgpuRenderer {
             None => {
                 // Reconfigure and retry
                 self.reconfigure_surface(self.width, self.height);
-                match self.surface.as_ref() {
+                match self.wgpu_surface.as_ref() {
                     Some(s) => match s.get_current_texture() {
                         wgpu::CurrentSurfaceTexture::Success(t) => t,
                         wgpu::CurrentSurfaceTexture::Suboptimal(t) => t,
@@ -245,7 +259,7 @@ impl EguiWgpuRenderer {
         let texture_view = surface_texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        let mut encoder = self.device.create_command_encoder(&Default::default());
+        let mut encoder = self.wgpu_device.create_command_encoder(&Default::default());
 
         // Clear pass
         let _ = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -272,12 +286,12 @@ impl EguiWgpuRenderer {
 
         for (id, image_delta) in &egui_fulloutput.textures_delta.set {
             self.renderer
-                .update_texture(&self.device, &self.queue, *id, image_delta);
+                .update_texture(&self.wgpu_device, &self.wgpu_queue, *id, image_delta);
         }
 
         self.renderer.update_buffers(
-            &self.device,
-            &self.queue,
+            &self.wgpu_device,
+            &self.wgpu_queue,
             &mut encoder,
             &tris,
             &screen_descriptor,
@@ -309,7 +323,7 @@ impl EguiWgpuRenderer {
         }
 
         // Submit commands and present
-        self.queue.submit(Some(encoder.finish()));
+        self.wgpu_queue.submit(Some(encoder.finish()));
         surface_texture.present();
     }
 }
