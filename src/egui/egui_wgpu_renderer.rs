@@ -125,7 +125,8 @@ impl EguiWgpuRenderer {
     ///
     /// Called when `set_device_lost_callback` fires and the `device_lost` flag
     /// is set. This drops and recreates the entire GPU pipeline: surface,
-    /// adapter, device, queue, and egui renderer (which loses its texture cache).
+    /// adapter, device, queue, and egui renderer (which loses its texture
+    /// cache).
     fn recreate_device(&mut self) {
         log::warn!("[EGUI] Recreating WGPU device and all resources");
 
@@ -146,14 +147,22 @@ impl EguiWgpuRenderer {
         self.wgpu_surface_config = None;
     }
 
-    /// Shared GPU resource initialization used by both `new()` and `recreate_device()`.
+    /// Shared GPU resource initialization used by both `new()` and
+    /// `recreate_device()`.
     #[inline]
     fn create_gpu_resources(
         instance: &wgpu::Instance,
         conn: &Connection,
         wl_surface: &WlSurface,
         device_lost: &Arc<AtomicBool>,
-    ) -> (Surface<'static>, Adapter, Device, Queue, TextureFormat, Renderer) {
+    ) -> (
+        Surface<'static>,
+        Adapter,
+        Device,
+        Queue,
+        TextureFormat,
+        Renderer,
+    ) {
         let surface = Self::create_wgpu_surface(instance, conn, wl_surface);
 
         let adapter =
@@ -279,9 +288,7 @@ impl EguiWgpuRenderer {
                     log::warn!("[EGUI] Surface was lost, recreating...");
 
                     if self.device_lost.load(Ordering::SeqCst) {
-                        log::error!(
-                            "[EGUI] Device was lost, recreating device and all resources"
-                        );
+                        log::error!("[EGUI] Device was lost, recreating device and all resources");
                         self.recreate_device();
                         self.device_lost.store(false, Ordering::SeqCst);
                     } else {
@@ -434,5 +441,10 @@ impl EguiWgpuRenderer {
         // Submit commands and present
         self.wgpu_queue.submit(Some(encoder.finish()));
         surface_texture.present();
+    }
+
+    pub fn test_destroy_wgpu_device(&mut self) {
+        self.wgpu_device.destroy();
+        let _ = self.wgpu_device.poll(wgpu::PollType::Poll);
     }
 }

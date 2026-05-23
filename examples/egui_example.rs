@@ -13,16 +13,18 @@ struct EguiApp {
     fps: f32,
     last_render: Instant,
     show_spinner: bool,
+    tx: std::sync::mpsc::Sender<AppEvent>,
 }
 
 impl EguiApp {
-    fn new() -> Self {
+    fn new(tx: std::sync::mpsc::Sender<AppEvent>) -> Self {
         Self {
             fps: 0.0,
             counter: 0,
             text: "Hello from EGUI!".into(),
             last_render: Instant::now(),
             show_spinner: false,
+            tx,
         }
     }
 
@@ -67,6 +69,13 @@ impl EguiApp {
                 self.show_spinner = !self.show_spinner;
             }
 
+            if ui.button("Test WGPU device destruction").clicked() {
+                // This will destroy the WGPU device and force it to be recreated on the next
+                // frame You should see a brief freeze when this happens, but
+                // the app should continue working after that
+                self.tx.send(AppEvent::RequestDestroyWgpuDevice).unwrap();
+            }
+
             if self.show_spinner {
                 ui.add(egui::Spinner::new());
             }
@@ -79,6 +88,7 @@ impl EguiApp {
 
 enum AppEvent {
     WaylandDispatch(DispatchToken),
+    RequestDestroyWgpuDevice,
     // Other events can be added here
 }
 
@@ -88,11 +98,12 @@ fn main() {
 
     // Create channel for external events
     let (tx, rx) = std::sync::mpsc::channel::<AppEvent>();
+    let tx_ = tx.clone();
     let mut app = Application::new(move |t| {
-        let _ = tx.send(AppEvent::WaylandDispatch(t));
+        let _ = tx_.send(AppEvent::WaylandDispatch(t));
     });
-    let mut myapp1 = EguiApp::new();
-    let mut myapp2 = EguiApp::new();
+    let mut myapp1 = EguiApp::new(tx.clone());
+    let mut myapp2 = EguiApp::new(tx.clone());
     let first_monitor = app
         .output_state
         .outputs()
@@ -145,6 +156,9 @@ fn main() {
     'main_loop: loop {
         if let Ok(event) = rx.recv() {
             match event {
+                AppEvent::RequestDestroyWgpuDevice => {
+                    example_window_app.test_destroy_wgpu_device();
+                }
                 AppEvent::WaylandDispatch(token) => {
                     // Normal Wayland event dispatching to the windows and surfaces
                     let events = app.dispatch_pending(token);

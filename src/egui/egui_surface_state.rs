@@ -330,6 +330,10 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
         return 0.0;
     }
 
+    pub fn test_destroy_wgpu_device(&mut self) {
+        self.renderer.test_destroy_wgpu_device();
+    }
+
     /// Handle Wayland events and update surfaces accordingly
     /// Returns an optional cursor shape change
     pub fn handle_events(
