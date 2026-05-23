@@ -3,7 +3,9 @@ use egui_wgpu::Renderer;
 use egui_wgpu::RendererOptions;
 use egui_wgpu::ScreenDescriptor;
 use egui_wgpu::wgpu;
+use egui_wgpu::wgpu::Adapter;
 use egui_wgpu::wgpu::Device;
+use egui_wgpu::wgpu::DeviceLostReason;
 use egui_wgpu::wgpu::Queue;
 use egui_wgpu::wgpu::StoreOp;
 use egui_wgpu::wgpu::Surface;
@@ -14,6 +16,9 @@ use raw_window_handle::RawWindowHandle;
 use raw_window_handle::WaylandDisplayHandle;
 use raw_window_handle::WaylandWindowHandle;
 use std::ptr::NonNull;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 use wayland_client::Connection;
 use wayland_client::Proxy;
 use wayland_client::protocol::wl_surface::WlSurface;
@@ -45,11 +50,16 @@ pub struct EguiWgpuRenderer {
     wgpu_queue: Queue,
     wgpu_surface_config: Option<SurfaceConfiguration>,
     wgpu_instance: wgpu::Instance,
+    wgpu_adapter: Adapter,
     output_format: TextureFormat,
     width: u32,
     height: u32,
     wl_surface: WlSurface,
     wl_conn: Connection,
+    /// Set to `true` by `set_device_lost_callback` when the GPU device is lost.
+    /// When this flag is set, we need to recreate the device and all resources
+    /// (not just the surface).
+    device_lost: Arc<AtomicBool>,
 }
 
 impl EguiWgpuRenderer {
@@ -63,44 +73,16 @@ impl EguiWgpuRenderer {
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
 
-        let surface = Self::create_wgpu_surface(&instance, conn, wl_surface);
-
-        let adapter =
-            futures::executor::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-                compatible_surface: Some(&surface),
-                ..Default::default()
-            }))
-            .expect("Failed to find a suitable adapter");
-
-        let (wgpu_device, wgpu_queue) =
-            futures::executor::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-                memory_hints: wgpu::MemoryHints::MemoryUsage,
-                ..Default::default()
-            }))
-            .expect("Failed to request WGPU device");
-
-        let caps = surface.get_capabilities(&adapter);
-        let output_format = *caps
-            .formats
-            .get(0)
-            .unwrap_or(&wgpu::TextureFormat::Bgra8Unorm);
-
-        let egui_renderer = Renderer::new(
-            &wgpu_device,
-            output_format,
-            RendererOptions {
-                msaa_samples: 1,
-                depth_stencil_format: None,
-                ..Default::default()
-            },
-        );
+        let device_lost = Arc::new(AtomicBool::new(false));
+        let (surface, adapter, device, queue, output_format, egui_renderer) =
+            Self::create_gpu_resources(&instance, conn, wl_surface, &device_lost);
 
         EguiWgpuRenderer {
             egui_context: egui_context.clone(),
             egui_renderer,
             wgpu_surface: Some(surface),
-            wgpu_device,
-            wgpu_queue,
+            wgpu_device: device,
+            wgpu_queue: queue,
             wgpu_surface_config: None,
             output_format,
             width: 0,
@@ -108,6 +90,8 @@ impl EguiWgpuRenderer {
             wl_surface: wl_surface.clone(),
             wl_conn: conn.clone(),
             wgpu_instance: instance,
+            wgpu_adapter: adapter,
+            device_lost,
         }
     }
 
@@ -135,6 +119,82 @@ impl EguiWgpuRenderer {
                 &self.wl_surface,
             ));
         }
+    }
+
+    /// Recreate the WGPU device, queue, and egui renderer after a device loss.
+    ///
+    /// Called when `set_device_lost_callback` fires and the `device_lost` flag
+    /// is set. This drops and recreates the entire GPU pipeline: surface,
+    /// adapter, device, queue, and egui renderer (which loses its texture cache).
+    fn recreate_device(&mut self) {
+        log::warn!("[EGUI] Recreating WGPU device and all resources");
+
+        let (surface, adapter, device, queue, output_format, egui_renderer) =
+            Self::create_gpu_resources(
+                &self.wgpu_instance,
+                &self.wl_conn,
+                &self.wl_surface,
+                &self.device_lost,
+            );
+
+        self.wgpu_surface = Some(surface);
+        self.wgpu_adapter = adapter;
+        self.wgpu_device = device;
+        self.wgpu_queue = queue;
+        self.output_format = output_format;
+        self.egui_renderer = egui_renderer;
+        self.wgpu_surface_config = None;
+    }
+
+    /// Shared GPU resource initialization used by both `new()` and `recreate_device()`.
+    #[inline]
+    fn create_gpu_resources(
+        instance: &wgpu::Instance,
+        conn: &Connection,
+        wl_surface: &WlSurface,
+        device_lost: &Arc<AtomicBool>,
+    ) -> (Surface<'static>, Adapter, Device, Queue, TextureFormat, Renderer) {
+        let surface = Self::create_wgpu_surface(instance, conn, wl_surface);
+
+        let adapter =
+            futures::executor::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                compatible_surface: Some(&surface),
+                ..Default::default()
+            }))
+            .expect("Failed to find a suitable adapter");
+
+        let (device, queue) =
+            futures::executor::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+                memory_hints: wgpu::MemoryHints::MemoryUsage,
+                ..Default::default()
+            }))
+            .expect("Failed to request WGPU device");
+
+        let caps = surface.get_capabilities(&adapter);
+        let output_format = *caps
+            .formats
+            .first()
+            .unwrap_or(&wgpu::TextureFormat::Bgra8Unorm);
+
+        let renderer = Renderer::new(
+            &device,
+            output_format,
+            RendererOptions {
+                msaa_samples: 1,
+                depth_stencil_format: None,
+                ..Default::default()
+            },
+        );
+
+        device.set_device_lost_callback({
+            let device_lost = device_lost.clone();
+            move |reason: DeviceLostReason, msg: String| {
+                log::error!("[EGUI] WGPU device lost: {reason:?}: {msg}");
+                device_lost.store(true, Ordering::SeqCst);
+            }
+        });
+
+        (surface, adapter, device, queue, output_format, renderer)
     }
 
     /// Create a WGPU surface from Wayland connection and surface.
@@ -216,21 +276,21 @@ impl EguiWgpuRenderer {
                     log::trace!("[EGUI] Surface configuration is outdated, reconfiguring");
                 }
                 wgpu::CurrentSurfaceTexture::Lost => {
-                    log::warn!("[EGUI] Surface was lost, recreating and reconfiguring");
-                    self.wgpu_surface = Some(Self::create_wgpu_surface(
-                        &self.wgpu_instance,
-                        &self.wl_conn,
-                        &self.wl_surface,
-                    ));
+                    log::warn!("[EGUI] Surface was lost, recreating...");
 
-                    // TODO: From the docs, quote:
-                    //
-                    // https://docs.rs/wgpu/latest/wgpu/enum.CurrentSurfaceTexture.html
-                    // > If the device as a whole is lost (see
-                    // > set_device_lost_callback()), then you need to recreate
-                    // > the device and all resources. Otherwise, call
-                    // > Instance::create_surface() to recreate the surface,
-                    // > then Surface::configure(), and try again.
+                    if self.device_lost.load(Ordering::SeqCst) {
+                        log::error!(
+                            "[EGUI] Device was lost, recreating device and all resources"
+                        );
+                        self.recreate_device();
+                        self.device_lost.store(false, Ordering::SeqCst);
+                    } else {
+                        self.wgpu_surface = Some(Self::create_wgpu_surface(
+                            &self.wgpu_instance,
+                            &self.wl_conn,
+                            &self.wl_surface,
+                        ));
+                    }
                 }
                 wgpu::CurrentSurfaceTexture::Timeout => {
                     log::trace!("[EGUI] Surface acquisition timed out, skipping frame");
