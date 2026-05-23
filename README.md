@@ -14,6 +14,9 @@ I don't know will I ever get to ICED integration, but it is planned.
 
 ## Change log
 
+- 2026-05-23: On Wayland [paint
+  suspend](https://wayland.app/protocols/xdg-shell#xdg_toplevel:enum:state:entry:suspended)
+  WGPU Surface is now dropped, and on resume it will be re-created
 - 2026-05-22: EGUI got a new `&egui::UI`, see detailed change from [CHANGELOG.md](./CHANGELOG.md)
 - 2026-07-03: EGUI WGPU defaults to transparent clear pass, EGUI then decides the background color.
 
