@@ -41,7 +41,7 @@ impl EguiApp {
     fn ui(&mut self, ui: &mut egui::Ui) {
         ui.set_visuals(egui::Visuals::light());
 
-        CentralPanel::default().show_inside(ui, |ui| {
+        CentralPanel::default().show(ui, |ui| {
             ui.heading("Egui WGPU / Smithay example");
 
             ui.separator();

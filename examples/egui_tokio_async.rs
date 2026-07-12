@@ -21,7 +21,7 @@ impl EguiApp {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui) {
-        CentralPanel::default().show_inside(ui, |ui| {
+        CentralPanel::default().show(ui, |ui| {
             ui.heading("Egui WGPU / Smithay - Async Multi-Source");
 
             ui.separator();

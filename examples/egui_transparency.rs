@@ -34,7 +34,7 @@ impl EguiApp {
         visuals.panel_fill = egui::Color32::from_rgba_unmultiplied(255, 128, 128, 128);
         ui.set_visuals(visuals);
 
-        CentralPanel::default().show_inside(ui, |ui| {
+        CentralPanel::default().show(ui, |ui| {
             ui.heading("Egui Transparency Example");
             ui.label(format!("Last render time: {:?}", self.last_render));
             ui.label(format!("FPS between two last frames: {:.2}", self.fps));

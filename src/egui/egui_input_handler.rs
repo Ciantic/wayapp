@@ -205,12 +205,12 @@ impl WaylandToEguiInput {
 
     pub fn handle_ime_enter(&mut self) {
         trace!("[INPUT] IME enabled");
-        self.events.push(Event::Ime(ImeEvent::Enabled));
+        // ImeEvent::Enabled is deprecated and no longer used by egui
     }
 
     pub fn handle_ime_leave(&mut self) {
         trace!("[INPUT] IME disabled");
-        self.events.push(Event::Ime(ImeEvent::Disabled));
+        // ImeEvent::Disabled is deprecated and no longer used by egui
     }
 
     pub fn handle_ime_commit(&mut self, text: &str) {
@@ -221,8 +221,10 @@ impl WaylandToEguiInput {
 
     pub fn handle_ime_preedit_string(&mut self, text: &str, _cursor_begin: i32, _cursor_end: i32) {
         trace!("[INPUT] IME preedit: {:?}", text);
-        self.events
-            .push(Event::Ime(ImeEvent::Preedit(text.to_string())));
+        self.events.push(Event::Ime(ImeEvent::Preedit {
+            text: text.to_string(),
+            active_range_chars: None,
+        }));
     }
 
     pub fn handle_ime_delete_surrounding_text(&mut self, before_length: u32, after_length: u32) {

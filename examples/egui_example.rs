@@ -36,7 +36,7 @@ impl EguiApp {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui) {
-        CentralPanel::default().show_inside(ui, |ui| {
+        CentralPanel::default().show(ui, |ui| {
             ui.heading("Egui WGPU / Smithay example");
             ui.label(format!("Last render time: {:?}", self.last_render));
             ui.label(format!("FPS between two last frames: {:.2}", self.fps));
