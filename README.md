@@ -14,6 +14,7 @@ I don't know will I ever get to ICED integration, but it is planned.
 
 ## Change log
 
+- 2026-07-12: Update EGUI to 0.35
 - 2026-05-23: On Wayland [paint
   suspend](https://wayland.app/protocols/xdg-shell#xdg_toplevel:enum:state:entry:suspended)
   WGPU Surface is now dropped, and on resume it will be re-created
