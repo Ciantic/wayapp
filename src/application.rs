@@ -434,11 +434,16 @@ impl InternalDispatcherThread {
 
         // This function execution can take sometimes seconds (if no events are coming)
         if let Some(guard) = conn.prepare_read() {
-            guard.read_without_dispatch()?;
+            guard.read()?;
         } else {
+            // This branch may be hit if the backend's inner queue is full, likely
+            // because another thread was interacting with the Wayland socket as well.
+            //
             // Goal is that this branch is never or very seldomly hit
             #[cfg(feature = "_example")]
             println!("♦️♦️♦️♦️♦️ Failed to read");
+
+            conn.backend().dispatch_inner_queue()?;
         }
 
         (dispatch_fn)(DispatchToken::wayland());
