@@ -358,6 +358,7 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
                         .get();
 
                     self.configure(app, width, height, Some(configure.state));
+                    self.render(ui);
                     self.request_dispatch_frame(app);
                 }
                 WaylandEvent::LayerShellConfigure(_, config) => {
@@ -365,6 +366,7 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
                     let height = config.new_size.1;
 
                     self.configure(app, width, height, None);
+                    self.render(ui);
                     self.request_dispatch_frame(app);
                 }
                 WaylandEvent::PopupConfigure(_, config) => {
@@ -372,6 +374,7 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
                     let height = config.height as u32;
 
                     self.configure(app, width, height, None);
+                    self.render(ui);
                     self.request_dispatch_frame(app);
                 }
                 WaylandEvent::Frame(_, _) => {
