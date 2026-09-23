@@ -12,6 +12,7 @@ use crate::WaylandToEguiInput;
 use crate::egui_to_cursor_shape;
 use egui::Context;
 use log::trace;
+use smithay_client_toolkit::compositor::FrameCallbackData;
 use smithay_client_toolkit::reexports::csd_frame::WindowState;
 use smithay_client_toolkit::seat::keyboard::KeyEvent;
 use smithay_client_toolkit::seat::keyboard::Modifiers as WaylandModifiers;
@@ -200,7 +201,8 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
     /// method can be used to break the FPS limit, and I wanted to break it
     /// for the window resizing events at least for now.
     fn request_dispatch_frame(&mut self, app: &mut Application) {
-        self.wl_surface().frame(&app.qh, self.wl_surface().clone());
+        self.wl_surface()
+            .frame(&app.qh, FrameCallbackData(self.wl_surface().clone()));
         self.wl_surface().commit();
         app.conn.flush().unwrap();
     }

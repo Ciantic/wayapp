@@ -178,7 +178,6 @@ impl WaylandToEguiInput {
             )),
             time: Some(self.start_time.elapsed().as_secs_f64()),
             predicted_dt: 1.0 / 60.0,
-            modifiers: self.modifiers,
             events,
             hovered_files: Vec::new(),
             dropped_files: Vec::new(),

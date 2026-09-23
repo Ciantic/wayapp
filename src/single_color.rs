@@ -5,6 +5,7 @@ use crate::Application;
 use crate::Kind;
 use crate::WaylandEvent;
 use log::trace;
+use smithay_client_toolkit::compositor::FrameCallbackData;
 use smithay_client_toolkit::shm::slot::SlotPool;
 use std::num::NonZero;
 use std::ops::Deref;
@@ -190,7 +191,7 @@ fn single_color_example_buffer_configure(
 
     // Damage, frame and attach
     surface.damage_buffer(0, 0, buffer_width as i32, buffer_height as i32);
-    surface.frame(qh, surface.clone());
+    surface.frame(qh, FrameCallbackData(surface.clone()));
     buffer.attach_to(surface).expect("buffer attach");
     surface.commit();
 }

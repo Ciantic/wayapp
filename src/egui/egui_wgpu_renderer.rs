@@ -182,6 +182,7 @@ impl EguiWgpuRenderer {
             height,
             present_mode: wgpu::PresentMode::Mailbox,
             alpha_mode: wgpu::CompositeAlphaMode::PreMultiplied,
+            color_space: wgpu::SurfaceColorSpace::Auto,
             view_formats: vec![self.output_format],
             desired_maximum_frame_latency: 2,
         };
@@ -277,7 +278,7 @@ impl EguiWgpuRenderer {
     /// Returns silently if the surface is suspended.
     pub fn render_to_wgpu(
         &mut self,
-        egui_fulloutput: egui::FullOutput,
+        mut egui_fulloutput: egui::FullOutput,
         width: u32,
         height: u32,
         pixels_per_point: f32,
@@ -297,6 +298,7 @@ impl EguiWgpuRenderer {
         let surface_texture = match self.acquire_surface_texture() {
             Some(texture) => texture,
             None => {
+                egui_fulloutput.textures_delta.clear();
                 return;
             }
         };
@@ -329,13 +331,15 @@ impl EguiWgpuRenderer {
             .egui_context
             .tessellate(egui_fulloutput.shapes, egui_fulloutput.pixels_per_point);
 
-        for (id, image_delta) in &egui_fulloutput.textures_delta.set {
-            self.egui_renderer.update_texture(
-                &self.wgpu_device,
-                &self.wgpu_queue,
-                *id,
-                image_delta,
-            );
+        for (id, image_deltas) in &egui_fulloutput.textures_delta.set {
+            for image_delta in image_deltas {
+                self.egui_renderer.update_texture(
+                    &self.wgpu_device,
+                    &self.wgpu_queue,
+                    *id,
+                    image_delta,
+                );
+            }
         }
 
         self.egui_renderer.update_buffers(
@@ -364,15 +368,18 @@ impl EguiWgpuRenderer {
             multiview_mask: None,
         });
 
-        // Cleanup any textures marked for deletion by EGUI before rendering
+        // Render before freeing textures so they remain available to this frame.
         self.egui_renderer
             .render(&mut rpass.forget_lifetime(), &tris, &screen_descriptor);
-        for x in &egui_fulloutput.textures_delta.free {
-            self.egui_renderer.free_texture(x)
-        }
 
-        // Submit commands and present
+        // Submit before freeing textures because the commands may still reference them.
         self.wgpu_queue.submit(Some(encoder.finish()));
-        surface_texture.present();
+        for id in &egui_fulloutput.textures_delta.free {
+            self.egui_renderer.free_texture(id);
+        }
+        egui_fulloutput.textures_delta.clear();
+
+        // Present after submitting the frame.
+        self.wgpu_queue.present(surface_texture);
     }
 }

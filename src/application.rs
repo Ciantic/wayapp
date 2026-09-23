@@ -5,19 +5,8 @@
 use log::trace;
 use smithay_client_toolkit::compositor::CompositorHandler;
 use smithay_client_toolkit::compositor::CompositorState;
-use smithay_client_toolkit::delegate_compositor;
-use smithay_client_toolkit::delegate_keyboard;
-use smithay_client_toolkit::delegate_layer;
-use smithay_client_toolkit::delegate_output;
-use smithay_client_toolkit::delegate_pointer;
 use smithay_client_toolkit::delegate_registry;
-use smithay_client_toolkit::delegate_seat;
-use smithay_client_toolkit::delegate_shm;
-use smithay_client_toolkit::delegate_simple;
-use smithay_client_toolkit::delegate_subcompositor;
-use smithay_client_toolkit::delegate_xdg_popup;
-use smithay_client_toolkit::delegate_xdg_shell;
-use smithay_client_toolkit::delegate_xdg_window;
+use smithay_client_toolkit::dispatch2::Dispatch2;
 use smithay_client_toolkit::output::OutputHandler;
 use smithay_client_toolkit::output::OutputState;
 use smithay_client_toolkit::registry::ProvidesRegistryState;
@@ -76,6 +65,7 @@ use wayland_protocols::wp::text_input::zv3::client::zwp_text_input_v3;
 use wayland_protocols::wp::text_input::zv3::client::zwp_text_input_v3::ZwpTextInputV3;
 use wayland_protocols::wp::viewporter::client::wp_viewport::WpViewport;
 use wayland_protocols::wp::viewporter::client::wp_viewport::{self};
+use wayland_protocols::wp::viewporter::client::wp_viewporter;
 use wayland_protocols::wp::viewporter::client::wp_viewporter::WpViewporter;
 
 /// Enum representing different Wayland events
@@ -900,20 +890,20 @@ impl Dispatch<WlRegion, ()> for Application {
     }
 }
 
-delegate_compositor!(Application);
-delegate_subcompositor!(Application);
-delegate_output!(Application);
-delegate_shm!(Application);
-delegate_seat!(Application);
-delegate_keyboard!(Application);
-delegate_pointer!(Application);
-delegate_layer!(Application);
-delegate_xdg_shell!(Application);
-delegate_xdg_window!(Application);
-delegate_xdg_popup!(Application);
+impl Dispatch2<WpViewporter, Application> for () {
+    fn event(
+        &self,
+        _: &mut Application,
+        _: &WpViewporter,
+        _: wp_viewporter::Event,
+        _: &Connection,
+        _: &QueueHandle<Application>,
+    ) {
+    }
+}
+
 delegate_registry!(Application);
-delegate_simple!(Application, WpViewporter, 1);
-delegate_simple!(Application, ZwpTextInputManagerV3, 1);
+smithay_client_toolkit::delegate_dispatch2!(Application);
 
 // ----------------------------------------------------------------
 // Request frame helper
