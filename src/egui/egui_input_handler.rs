@@ -131,12 +131,19 @@ impl WaylandToEguiInput {
         }
 
         if let Some(key) = keysym_to_egui_key(event.keysym) {
+            // XKeysym reports Shift+Tab as `ISO_Left_Tab`, so the shift
+            // modifier is implied by the keysym even if the modifier update
+            // arrives later.
+            let mut modifiers = self.modifiers;
+            if event.keysym == Keysym::ISO_Left_Tab {
+                modifiers.shift = true;
+            }
             self.events.push(Event::Key {
                 key,
                 physical_key: None,
                 pressed,
                 repeat: is_repeat,
-                modifiers: self.modifiers,
+                modifiers,
             });
         } else {
             trace!(
@@ -344,7 +351,7 @@ fn keysym_to_egui_key(keysym: Keysym) -> Option<Key> {
         Keysym::rightarrow | Keysym::Right => Key::ArrowRight,
         Keysym::uparrow | Keysym::Up => Key::ArrowUp,
         Keysym::Escape => Key::Escape,
-        Keysym::Tab => Key::Tab,
+        Keysym::Tab | Keysym::ISO_Left_Tab => Key::Tab,
         Keysym::BackSpace => Key::Backspace,
         Keysym::Return => Key::Enter,
         Keysym::Insert => Key::Insert,
