@@ -24,8 +24,14 @@ use std::ops::DerefMut;
 use std::time::Duration;
 use std::time::Instant;
 use wayland_client::Proxy;
+use wayland_client::protocol::wl_output::WlOutput;
 use wayland_client::protocol::wl_surface::WlSurface;
 use wayland_protocols::wp::viewporter::client::wp_viewport::WpViewport;
+
+const DEFAULT_REFRESH_RATE: f32 = 60.0;
+const SUSPENDED_REFRESH_RATE: f32 = 0.05;
+const MIN_REFRESH_RATE: f32 = 1.0;
+const MAX_REFRESH_RATE: f32 = 1000.0;
 
 /// Surface-specific EGUI state
 pub struct EguiSurfaceState<T: Into<Kind> + Clone> {
@@ -45,6 +51,7 @@ pub struct EguiSurfaceState<T: Into<Kind> + Clone> {
     last_ime_output: Option<egui::output::IMEOutput>,
     frame_timings: Option<(Instant, Instant)>,
     has_keyboard_focus: bool,
+    outputs: Vec<WlOutput>,
     egui_context: Context,
     frame_scheduler: FrameScheduler,
 }
@@ -89,6 +96,7 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
             last_ime_output: None,
             frame_timings: None,
             has_keyboard_focus: false,
+            outputs: Vec::new(),
             egui_context,
             frame_scheduler,
         }
@@ -142,12 +150,22 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
             self.renderer.resume();
         }
 
-        self.frame_scheduler.set_fps_target(
-            if window_state.map_or(false, |state| state.contains(WindowState::SUSPENDED)) {
-                0.05 // 0.0001
-            } else {
-                60.0
-            },
+        self.update_fps_target(app);
+    }
+
+    fn update_fps_target(&mut self, app: &Application) {
+        let fps = get_wayland_refresh_rate(&self.outputs, app);
+        let effective_fps = if self.suspended {
+            SUSPENDED_REFRESH_RATE
+        } else {
+            fps
+        };
+        self.input_state.set_predicted_dt(1.0 / effective_fps);
+        self.frame_scheduler.set_fps_target(effective_fps);
+        trace!(
+            "[EGUI] Frame rate target for surface {:?}: {:.3} Hz",
+            self.wl_surface().id(),
+            effective_fps
         );
     }
 
@@ -382,6 +400,24 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
                 WaylandEvent::Frame(_, _) => {
                     self.render(ui);
                 }
+                WaylandEvent::SurfaceEnteredOutput(_, output) => {
+                    if !self.outputs.iter().any(|o| o.id() == output.id()) {
+                        self.outputs.push(output.clone());
+                    }
+                    trace!("Surface entered output: {:?}", output.id());
+                    self.update_fps_target(app);
+                }
+                WaylandEvent::SurfaceLeftOutput(_, output) => {
+                    self.outputs.retain(|o| o.id() != output.id());
+                    trace!("Surface left output: {:?}", output.id());
+                    self.update_fps_target(app);
+                }
+                WaylandEvent::OutputCreated(_)
+                | WaylandEvent::OutputUpdated(_)
+                | WaylandEvent::OutputDestroyed(_) => {
+                    trace!("Output configuration changed.");
+                    self.update_fps_target(app);
+                }
                 WaylandEvent::ScaleFactorChanged(_, factor) => {
                     self.scale_factor_changed(*factor);
                     self.process_egui_frame(ui);
@@ -538,4 +574,23 @@ impl<T: Into<Kind> + Clone> OptionEguiSurfaceStateExt<T> for Option<EguiSurfaceS
             surface_state.handle_events(app, events, ui);
         }
     }
+}
+
+/// Frame rate of the fastest given output
+fn get_wayland_refresh_rate(outputs: &[WlOutput], app: &Application) -> f32 {
+    let fastest = |iter: &mut dyn Iterator<Item = WlOutput>| {
+        iter.filter_map(|output| {
+            let modes = app.output_state.info(&output)?.modes;
+            let mode = modes
+                .iter()
+                .find(|m| m.current && m.refresh_rate > 0)
+                .or_else(|| modes.iter().find(|m| m.preferred && m.refresh_rate > 0))
+                .or_else(|| modes.iter().find(|m| m.refresh_rate > 0))?;
+            Some((mode.refresh_rate as f32 / 1000.0).clamp(MIN_REFRESH_RATE, MAX_REFRESH_RATE))
+        })
+        .reduce(f32::max)
+    };
+    fastest(&mut outputs.iter().cloned())
+        .or_else(|| fastest(&mut app.output_state.outputs()))
+        .unwrap_or(DEFAULT_REFRESH_RATE)
 }

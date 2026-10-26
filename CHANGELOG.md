@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.2
+
+- Use Wayland output FPS as EGUI render refresh rate
+
 ## 0.4.1
 
 - Update EGUI to 0.37

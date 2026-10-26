@@ -30,6 +30,7 @@ pub struct WaylandToEguiInput {
     screen_width: u32,
     screen_height: u32,
     start_time: Instant,
+    predicted_dt: f32,
     clipboard: Clipboard,
     last_key_utf8: Option<String>,
     has_keyboard_focus: bool,
@@ -44,6 +45,7 @@ impl WaylandToEguiInput {
             screen_width: 256,
             screen_height: 256,
             start_time: Instant::now(),
+            predicted_dt: 1.0 / 60.0,
             clipboard,
             last_key_utf8: None,
             has_keyboard_focus: false,
@@ -53,6 +55,11 @@ impl WaylandToEguiInput {
     pub fn set_screen_size(&mut self, width: u32, height: u32) {
         self.screen_width = width;
         self.screen_height = height;
+    }
+
+    /// Set the expected time between two frames in seconds
+    pub fn set_predicted_dt(&mut self, predicted_dt: f32) {
+        self.predicted_dt = predicted_dt.clamp(0.0001, 1.0);
     }
 
     pub fn handle_pointer_event(&mut self, event: &PointerEvent) {
@@ -173,7 +180,7 @@ impl WaylandToEguiInput {
                 egui::vec2(self.screen_width as f32, self.screen_height as f32),
             )),
             time: Some(self.start_time.elapsed().as_secs_f64()),
-            predicted_dt: 1.0 / 60.0,
+            predicted_dt: self.predicted_dt,
             events,
             hovered_files: Vec::new(),
             dropped_files: Vec::new(),
