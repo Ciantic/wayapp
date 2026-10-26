@@ -70,6 +70,21 @@ impl EguiApp {
             if self.show_spinner {
                 ui.add(egui::Spinner::new());
             }
+
+            ui.separator();
+
+            // Scrollable area is limited to its own max height, the rest of the UI stays
+            // put.
+            ui.label("Scrollable list:");
+            egui::ScrollArea::vertical()
+                .id_salt("scrollable_list")
+                .max_height(100.0)
+                .auto_shrink(false)
+                .show(ui, |ui| {
+                    for i in 0..20 {
+                        ui.label(format!("Scrollable item {i}"));
+                    }
+                });
         });
 
         // For continuous rendering:

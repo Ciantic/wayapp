@@ -1,8 +1,9 @@
 # Changelog
 
-## 0.4.0
+## 0.4.1
 
-Update dependencies EGUI & WGPU
+- Update EGUI to 0.37
+- Fix mouse wheel
 
 ## 0.3.2
 

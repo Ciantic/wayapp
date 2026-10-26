@@ -14,10 +14,12 @@ use log::trace;
 use smithay_client_toolkit::seat::keyboard::KeyEvent;
 use smithay_client_toolkit::seat::keyboard::Keysym;
 use smithay_client_toolkit::seat::keyboard::Modifiers as WaylandModifiers;
+use smithay_client_toolkit::seat::pointer::AxisScroll;
 use smithay_client_toolkit::seat::pointer::PointerEvent;
 use smithay_client_toolkit::seat::pointer::PointerEventKind;
 use smithay_clipboard::Clipboard;
 use std::time::Instant;
+use wayland_client::protocol::wl_pointer::AxisSource;
 use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::Shape;
 
 /// Handles input events from Wayland and converts them to EGUI RawInput
@@ -87,19 +89,13 @@ impl WaylandToEguiInput {
             PointerEventKind::Axis {
                 horizontal,
                 vertical,
+                source,
                 ..
             } => {
-                let scroll_delta = egui::vec2(
-                    horizontal.discrete as f32 * 10.0,
-                    vertical.discrete as f32 * 10.0,
-                );
-                if scroll_delta != egui::Vec2::ZERO {
-                    self.events.push(Event::MouseWheel {
-                        phase: egui::TouchPhase::End,
-                        unit: egui::MouseWheelUnit::Line,
-                        delta: scroll_delta,
-                        modifiers: self.modifiers,
-                    });
+                if let Some(event) =
+                    wayland_mouse_wheel_to_egui(horizontal, vertical, *source, self.modifiers)
+                {
+                    self.events.push(event);
                 }
             }
         }
@@ -196,6 +192,9 @@ impl WaylandToEguiInput {
                 trace!("[INPUT] CopyImage command received (not implemented)");
                 // TODO: Implement image copying to clipboard if required
             }
+            egui::OutputCommand::TextSelectionSettled(str) => {
+                trace!("[INPUT] TextSelectionSettled command received: {}", str);
+            }
             egui::OutputCommand::OpenUrl(url) => {
                 trace!("[INPUT] OpenUrl command received: {}", url.url);
             }
@@ -253,6 +252,70 @@ impl WaylandToEguiInput {
         //         modifiers: self.modifiers,
         //     });
         // }
+    }
+}
+
+/// Converts a Wayland `wl_pointer.axis` event to an egui [`Event::MouseWheel`].
+///
+/// Returns `None` if the event contains no scroll delta and does not end a
+/// gesture.
+fn wayland_mouse_wheel_to_egui(
+    horizontal: &AxisScroll,
+    vertical: &AxisScroll,
+    axis_source: Option<AxisSource>,
+    modifiers: EguiModifiers,
+) -> Option<Event> {
+    // Wayland reports how the *view* moves (positive = down/right), while egui
+    // reports how the *content* moves, so the sign is inverted.
+    let (unit, delta) = if horizontal.value120 != 0 || vertical.value120 != 0 {
+        // High-resolution wheel: 120 units per logical scroll step.
+        (
+            egui::MouseWheelUnit::Line,
+            egui::vec2(
+                horizontal.value120 as f32 / 120.0,
+                vertical.value120 as f32 / 120.0,
+            ),
+        )
+    } else if horizontal.discrete != 0 || vertical.discrete != 0 {
+        // Deprecated discrete steps, still sent by older compositors.
+        (
+            egui::MouseWheelUnit::Line,
+            egui::vec2(horizontal.discrete as f32, vertical.discrete as f32),
+        )
+    } else {
+        // Continuous scrolling (touchpads), already in surface-local points.
+        (
+            egui::MouseWheelUnit::Point,
+            egui::vec2(horizontal.absolute as f32, vertical.absolute as f32),
+        )
+    };
+    let delta = -delta;
+
+    let source = match (axis_source, unit) {
+        (Some(AxisSource::Wheel | AxisSource::WheelTilt), _) => egui::MouseWheelSource::Wheel,
+        (Some(AxisSource::Finger), _) => egui::MouseWheelSource::Trackpad,
+        (_, egui::MouseWheelUnit::Line) => egui::MouseWheelSource::Wheel,
+        _ => egui::MouseWheelSource::Unknown,
+    };
+
+    // `stop` ends a continuous scroll. Regular scroll events must use
+    // `TouchPhase::Move`: egui discards the delta of a `TouchPhase::End`.
+    let phase = if horizontal.stop || vertical.stop {
+        egui::TouchPhase::End
+    } else {
+        egui::TouchPhase::Move
+    };
+
+    if delta == egui::Vec2::ZERO && phase != egui::TouchPhase::End {
+        None
+    } else {
+        Some(Event::MouseWheel {
+            unit,
+            delta,
+            phase,
+            source,
+            modifiers,
+        })
     }
 }
 
