@@ -34,7 +34,7 @@ pub(crate) struct FrameScheduler {
 }
 
 impl FrameScheduler {
-    pub fn new(emit_frame: impl Fn() + Send + Sync + 'static) -> Self {
+    pub fn new(fps_target: f32, emit_frame: impl Fn() + Send + Sync + 'static) -> Self {
         let (tx, rx) = channel::<FrameSchedulerSignal>();
         let current_deadline = Arc::new(Mutex::new(None));
         let current_deadline_thrd = current_deadline.clone();
@@ -69,7 +69,7 @@ impl FrameScheduler {
                     }
                 }
             })),
-            fps_target: Arc::new(Mutex::new(60.0)),
+            fps_target: Arc::new(Mutex::new(fps_target.abs().max(0.0001))),
             current_deadline,
             sender: tx,
         }

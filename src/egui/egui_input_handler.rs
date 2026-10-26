@@ -37,15 +37,15 @@ pub struct WaylandToEguiInput {
 }
 
 impl WaylandToEguiInput {
-    pub fn new(clipboard: Clipboard) -> Self {
+    pub fn new(clipboard: Clipboard, width: u32, height: u32, fps: f32) -> Self {
         Self {
             modifiers: EguiModifiers::default(),
             pointer_pos: Pos2::ZERO,
             events: Vec::new(),
-            screen_width: 256,
-            screen_height: 256,
+            screen_width: width,
+            screen_height: height,
             start_time: Instant::now(),
-            predicted_dt: 1.0 / 60.0,
+            predicted_dt: 1.0 / fps,
             clipboard,
             last_key_utf8: None,
             has_keyboard_focus: false,
@@ -59,7 +59,7 @@ impl WaylandToEguiInput {
 
     /// Set the expected time between two frames in seconds
     pub fn set_predicted_dt(&mut self, predicted_dt: f32) {
-        self.predicted_dt = predicted_dt.clamp(0.0001, 1.0);
+        self.predicted_dt = predicted_dt;
     }
 
     pub fn handle_pointer_event(&mut self, event: &PointerEvent) {

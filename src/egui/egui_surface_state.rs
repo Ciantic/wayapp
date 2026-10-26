@@ -63,10 +63,11 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
         let egui_context = Context::default();
         let renderer = EguiWgpuRenderer::new(&egui_context, wl_surface, &app.conn);
         let clipboard = unsafe { Clipboard::new(app.conn.display().id().as_ptr() as *mut _) };
-        let input_state = WaylandToEguiInput::new(clipboard);
+        let fps = get_wayland_refresh_rate(&[], app);
+        let input_state = WaylandToEguiInput::new(clipboard, width, height, fps);
         let emitter = app.get_event_emitter();
         let wl_surface_clone = wl_surface.clone();
-        let frame_scheduler = FrameScheduler::new(move || {
+        let frame_scheduler = FrameScheduler::new(fps, move || {
             // Note: Using wl_surface.frame(), wl_surface.commit(), conn.flush()
             // caused crashes with WGPU handling, so I created a way to emit Frame
             // event without Wayland dispatching.
