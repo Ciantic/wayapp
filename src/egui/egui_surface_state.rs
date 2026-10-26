@@ -379,24 +379,21 @@ impl<T: Into<Kind> + Clone> EguiSurfaceState<T> {
                         .get();
 
                     self.configure(app, width, height, Some(configure.state));
-                    self.render(ui);
-                    self.request_dispatch_frame(app);
+                    self.request_frame();
                 }
                 WaylandEvent::LayerShellConfigure(_, config) => {
                     let width = config.new_size.0;
                     let height = config.new_size.1;
 
                     self.configure(app, width, height, None);
-                    self.render(ui);
-                    self.request_dispatch_frame(app);
+                    self.request_frame();
                 }
                 WaylandEvent::PopupConfigure(_, config) => {
                     let width = config.width as u32;
                     let height = config.height as u32;
 
                     self.configure(app, width, height, None);
-                    self.render(ui);
-                    self.request_dispatch_frame(app);
+                    self.request_frame();
                 }
                 WaylandEvent::Frame(_, _) => {
                     self.render(ui);
