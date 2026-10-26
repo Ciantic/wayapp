@@ -3,6 +3,7 @@
 ## 0.4.2
 
 - Use Wayland output FPS as EGUI render refresh rate
+- Fix Shift+tab changing focus to previous field
 
 ## 0.4.1
 
