@@ -131,19 +131,12 @@ impl WaylandToEguiInput {
         }
 
         if let Some(key) = keysym_to_egui_key(event.keysym) {
-            // XKeysym reports Shift+Tab as `ISO_Left_Tab`, so the shift
-            // modifier is implied by the keysym even if the modifier update
-            // arrives later.
-            let mut modifiers = self.modifiers;
-            if event.keysym == Keysym::ISO_Left_Tab {
-                modifiers.shift = true;
-            }
             self.events.push(Event::Key {
                 key,
                 physical_key: None,
                 pressed,
                 repeat: is_repeat,
-                modifiers,
+                modifiers: modifiers_for_keysym(event.keysym, self.modifiers),
             });
         } else {
             trace!(
@@ -343,31 +336,42 @@ fn wayland_button_to_egui(button: u32) -> Option<PointerButton> {
     }
 }
 
+fn modifiers_for_keysym(keysym: Keysym, mut modifiers: EguiModifiers) -> EguiModifiers {
+    // In wayland ISO_Left_Tab equals Shift+Tab, this can't be detected from the
+    // modifier state alone.
+    if keysym == Keysym::ISO_Left_Tab {
+        modifiers.shift = true;
+    }
+    modifiers
+}
+
 fn keysym_to_egui_key(keysym: Keysym) -> Option<Key> {
     Some(match keysym {
         // Commands:
-        Keysym::downarrow | Keysym::Down => Key::ArrowDown,
-        Keysym::leftarrow | Keysym::Left => Key::ArrowLeft,
-        Keysym::rightarrow | Keysym::Right => Key::ArrowRight,
-        Keysym::uparrow | Keysym::Up => Key::ArrowUp,
+        Keysym::downarrow | Keysym::Down | Keysym::KP_Down => Key::ArrowDown,
+        Keysym::leftarrow | Keysym::Left | Keysym::KP_Left => Key::ArrowLeft,
+        Keysym::rightarrow | Keysym::Right | Keysym::KP_Right => Key::ArrowRight,
+        Keysym::uparrow | Keysym::Up | Keysym::KP_Up => Key::ArrowUp,
         Keysym::Escape => Key::Escape,
-        Keysym::Tab | Keysym::ISO_Left_Tab => Key::Tab,
+        Keysym::Tab | Keysym::ISO_Left_Tab | Keysym::KP_Tab => Key::Tab,
         Keysym::BackSpace => Key::Backspace,
-        Keysym::Return => Key::Enter,
-        Keysym::Insert => Key::Insert,
-        Keysym::Delete => Key::Delete,
-        Keysym::Home => Key::Home,
-        Keysym::End => Key::End,
-        Keysym::Prior => Key::PageUp,
-        Keysym::Next => Key::PageDown,
+        Keysym::Return | Keysym::KP_Enter | Keysym::ISO_Enter => Key::Enter,
+        Keysym::Insert | Keysym::KP_Insert => Key::Insert,
+        Keysym::Delete | Keysym::KP_Delete => Key::Delete,
+        Keysym::Home | Keysym::KP_Home => Key::Home,
+        Keysym::End | Keysym::KP_End => Key::End,
+        // `KP_Page_Up`/`KP_Page_Down` are aliases of `KP_Prior`/`KP_Next` and
+        // cannot be listed separately (duplicate match arm).
+        Keysym::Prior | Keysym::KP_Prior => Key::PageUp,
+        Keysym::Next | Keysym::KP_Next => Key::PageDown,
         // Punctuation:
-        Keysym::space => Key::Space,
+        Keysym::space | Keysym::KP_Space => Key::Space,
         Keysym::colon => Key::Colon,
-        Keysym::comma => Key::Comma,
-        Keysym::minus => Key::Minus,
-        Keysym::period => Key::Period,
-        Keysym::plus => Key::Plus,
-        Keysym::equal => Key::Equals,
+        Keysym::comma | Keysym::KP_Separator => Key::Comma,
+        Keysym::minus | Keysym::KP_Subtract => Key::Minus,
+        Keysym::period | Keysym::KP_Decimal => Key::Period,
+        Keysym::plus | Keysym::KP_Add => Key::Plus,
+        Keysym::equal | Keysym::KP_Equal => Key::Equals,
         Keysym::semicolon => Key::Semicolon,
         Keysym::bracketleft => Key::OpenBracket,
         Keysym::bracketright => Key::CloseBracket,
@@ -375,54 +379,96 @@ fn keysym_to_egui_key(keysym: Keysym) -> Option<Key> {
         Keysym::braceright => Key::CloseCurlyBracket,
         Keysym::grave => Key::Backtick,
         Keysym::backslash => Key::Backslash,
-        Keysym::slash => Key::Slash,
+        Keysym::slash | Keysym::KP_Divide => Key::Slash,
         Keysym::bar => Key::Pipe,
         Keysym::question => Key::Questionmark,
         Keysym::exclam => Key::Exclamationmark,
         Keysym::apostrophe => Key::Quote,
         // Digits:
-        Keysym::_0 => Key::Num0,
-        Keysym::_1 => Key::Num1,
-        Keysym::_2 => Key::Num2,
-        Keysym::_3 => Key::Num3,
-        Keysym::_4 => Key::Num4,
-        Keysym::_5 => Key::Num5,
-        Keysym::_6 => Key::Num6,
-        Keysym::_7 => Key::Num7,
-        Keysym::_8 => Key::Num8,
-        Keysym::_9 => Key::Num9,
-        // Letters:
-        Keysym::a => Key::A,
-        Keysym::b => Key::B,
-        Keysym::c => Key::C,
-        Keysym::d => Key::D,
-        Keysym::e => Key::E,
-        Keysym::f => Key::F,
-        Keysym::g => Key::G,
-        Keysym::h => Key::H,
-        Keysym::i => Key::I,
-        Keysym::j => Key::J,
-        Keysym::k => Key::K,
-        Keysym::l => Key::L,
-        Keysym::m => Key::M,
-        Keysym::n => Key::N,
-        Keysym::o => Key::O,
-        Keysym::p => Key::P,
-        Keysym::q => Key::Q,
-        Keysym::r => Key::R,
-        Keysym::s => Key::S,
-        Keysym::t => Key::T,
-        Keysym::u => Key::U,
-        Keysym::v => Key::V,
-        Keysym::w => Key::W,
-        Keysym::x => Key::X,
-        Keysym::y => Key::Y,
-        Keysym::z => Key::Z,
+        Keysym::_0 | Keysym::KP_0 => Key::Num0,
+        Keysym::_1 | Keysym::KP_1 => Key::Num1,
+        Keysym::_2 | Keysym::KP_2 => Key::Num2,
+        Keysym::_3 | Keysym::KP_3 => Key::Num3,
+        Keysym::_4 | Keysym::KP_4 => Key::Num4,
+        Keysym::_5 | Keysym::KP_5 => Key::Num5,
+        Keysym::_6 | Keysym::KP_6 => Key::Num6,
+        Keysym::_7 | Keysym::KP_7 => Key::Num7,
+        Keysym::_8 | Keysym::KP_8 => Key::Num8,
+        Keysym::_9 | Keysym::KP_9 => Key::Num9,
+        // Letters: shift produces the uppercase keysym for the same key.
+        Keysym::a | Keysym::A => Key::A,
+        Keysym::b | Keysym::B => Key::B,
+        Keysym::c | Keysym::C => Key::C,
+        Keysym::d | Keysym::D => Key::D,
+        Keysym::e | Keysym::E => Key::E,
+        Keysym::f | Keysym::F => Key::F,
+        Keysym::g | Keysym::G => Key::G,
+        Keysym::h | Keysym::H => Key::H,
+        Keysym::i | Keysym::I => Key::I,
+        Keysym::j | Keysym::J => Key::J,
+        Keysym::k | Keysym::K => Key::K,
+        Keysym::l | Keysym::L => Key::L,
+        Keysym::m | Keysym::M => Key::M,
+        Keysym::n | Keysym::N => Key::N,
+        Keysym::o | Keysym::O => Key::O,
+        Keysym::p | Keysym::P => Key::P,
+        Keysym::q | Keysym::Q => Key::Q,
+        Keysym::r | Keysym::R => Key::R,
+        Keysym::s | Keysym::S => Key::S,
+        Keysym::t | Keysym::T => Key::T,
+        Keysym::u | Keysym::U => Key::U,
+        Keysym::v | Keysym::V => Key::V,
+        Keysym::w | Keysym::W => Key::W,
+        Keysym::x | Keysym::X => Key::X,
+        Keysym::y | Keysym::Y => Key::Y,
+        Keysym::z | Keysym::Z => Key::Z,
+        // Lock / system keys:
+        Keysym::Caps_Lock => Key::CapsLock,
+        Keysym::Num_Lock => Key::NumLock,
+        Keysym::Scroll_Lock => Key::ScrollLock,
+        Keysym::Print | Keysym::Sys_Req => Key::PrintScreen,
+        Keysym::Pause | Keysym::Break => Key::Pause,
+        Keysym::Menu => Key::Menu,
+        Keysym::Help => Key::Help,
+        Keysym::Clear => Key::Clear,
+        Keysym::XF86_PowerOff => Key::Power,
+        Keysym::XF86_Sleep | Keysym::XF86_Suspend | Keysym::XF86_Standby => Key::Sleep,
+        Keysym::XF86_Eject => Key::Eject,
+        // Modifier keys are reported as ordinary key presses too, so that
+        // input-capture UIs can bind them. egui derives `Modifiers` from
+        // `RawInput::modifiers`, not from these.
+        Keysym::Shift_L => Key::ShiftLeft,
+        Keysym::Shift_R => Key::ShiftRight,
+        Keysym::Control_L => Key::ControlLeft,
+        Keysym::Control_R => Key::ControlRight,
+        Keysym::Alt_L => Key::AltLeft,
+        // AltGr is reported as level-3 shift rather than as `Alt_R`.
+        Keysym::Alt_R | Keysym::ISO_Level3_Shift => Key::AltRight,
+        Keysym::Super_L => Key::SuperLeft,
+        Keysym::Super_R => Key::SuperRight,
+        // Browser / media / launch keys:
+        Keysym::XF86_Back => Key::BrowserBack,
+        Keysym::XF86_Forward => Key::BrowserForward,
+        Keysym::XF86_Refresh => Key::BrowserRefresh,
+        Keysym::XF86_Search => Key::BrowserSearch,
+        Keysym::XF86_HomePage => Key::BrowserHome,
+        Keysym::XF86_Favorites => Key::BrowserFavorites,
+        Keysym::XF86_Stop => Key::BrowserStop,
+        Keysym::XF86_AudioPlay | Keysym::XF86_AudioPause => Key::MediaPlayPause,
+        Keysym::XF86_AudioNext => Key::MediaTrackNext,
+        Keysym::XF86_AudioPrev => Key::MediaTrackPrevious,
+        Keysym::XF86_AudioStop => Key::MediaStop,
+        Keysym::XF86_AudioMute => Key::AudioVolumeMute,
+        Keysym::XF86_AudioLowerVolume => Key::AudioVolumeDown,
+        Keysym::XF86_AudioRaiseVolume => Key::AudioVolumeUp,
+        Keysym::XF86_Mail => Key::LaunchMail,
+        Keysym::XF86_Launch1 | Keysym::XF86_Explorer => Key::LaunchApp1,
+        Keysym::XF86_Launch2 | Keysym::XF86_Calculator => Key::LaunchApp2,
         // Function keys:
-        Keysym::F1 => Key::F1,
-        Keysym::F2 => Key::F2,
-        Keysym::F3 => Key::F3,
-        Keysym::F4 => Key::F4,
+        Keysym::F1 | Keysym::KP_F1 => Key::F1,
+        Keysym::F2 | Keysym::KP_F2 => Key::F2,
+        Keysym::F3 | Keysym::KP_F3 => Key::F3,
+        Keysym::F4 | Keysym::KP_F4 => Key::F4,
         Keysym::F5 => Key::F5,
         Keysym::F6 => Key::F6,
         Keysym::F7 => Key::F7,
@@ -454,8 +500,6 @@ fn keysym_to_egui_key(keysym: Keysym) -> Option<Key> {
         Keysym::F33 => Key::F33,
         Keysym::F34 => Key::F34,
         Keysym::F35 => Key::F35,
-        // Navigation keys:
-        // Keysym::BrowserBack => Key::BrowserBack,
         _ => return None,
     })
 }
