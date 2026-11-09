@@ -9,6 +9,9 @@ use smithay_client_toolkit::delegate_registry;
 use smithay_client_toolkit::dispatch2::Dispatch2;
 use smithay_client_toolkit::output::OutputHandler;
 use smithay_client_toolkit::output::OutputState;
+use smithay_client_toolkit::reexports::calloop::EventLoop;
+use smithay_client_toolkit::reexports::calloop::LoopHandle;
+use smithay_client_toolkit::reexports::calloop_wayland_source::WaylandSource;
 use smithay_client_toolkit::registry::ProvidesRegistryState;
 use smithay_client_toolkit::registry::RegistryState;
 use smithay_client_toolkit::registry::SimpleGlobal;
@@ -43,11 +46,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread::JoinHandle;
+use std::time::Duration;
 use wayland_backend::client::ObjectId;
 use wayland_backend::client::WaylandError;
 use wayland_client::Connection;
 use wayland_client::Dispatch;
-use wayland_client::EventQueue;
 use wayland_client::Proxy;
 use wayland_client::QueueHandle;
 use wayland_client::globals::registry_queue_init;
@@ -154,7 +157,8 @@ impl WaylandEventEmitter {
 pub struct Application {
     wayland_events: Arc<Mutex<Vec<WaylandEvent>>>,
     pub conn: Connection,
-    event_queue: Option<EventQueue<Self>>,
+    event_loop: Option<EventLoop<'static, Self>>,
+    loop_handle: LoopHandle<'static, Self>,
     pub qh: QueueHandle<Self>,
     pub registry_state: RegistryState,
     pub seat_state: SeatState,
@@ -186,6 +190,12 @@ impl Application {
             registry_queue_init::<Self>(&conn).expect("Failed to init registry");
         let qh: QueueHandle<Self> = event_queue.handle();
 
+        let event_loop: EventLoop<Self> = EventLoop::try_new().expect("Failed to init event loop");
+        let loop_handle = event_loop.handle();
+        WaylandSource::new(conn.clone(), event_queue)
+            .insert(event_loop.handle())
+            .unwrap();
+
         // Bind required globals
         let compositor_state =
             CompositorState::bind(&globals, &qh).expect("wl_compositor not available");
@@ -209,7 +219,8 @@ impl Application {
 
         Self {
             wayland_events: Arc::new(Mutex::new(Vec::new())),
-            event_queue: Some(event_queue),
+            event_loop: Some(event_loop),
+            loop_handle: loop_handle,
             conn,
             qh: qh.clone(),
             subcompositor_state,
@@ -279,10 +290,10 @@ impl Application {
     ///
     /// This may panic if the event queue has already been taken.
     pub fn run_dispatcher(&mut self) {
-        let event_queue = self.event_queue.take().expect("Event queue already used");
+        let event_loop = self.event_loop.take().expect("Event loop already used");
         let dispatch_fn = self.dispatch_fn.clone();
         let mut dispatcher =
-            InternalDispatcherThread::new(self.conn.clone(), event_queue, dispatch_fn);
+            InternalDispatcherThread::new(self.conn.clone(), event_loop, dispatch_fn);
         dispatcher.start_thread();
         self.dispatcher = Some(dispatcher);
     }
@@ -292,8 +303,8 @@ impl Application {
     /// Used with `run_dispatcher` method, when dispatch_fn is signaled
     pub fn dispatch_pending(&mut self, token: DispatchToken) -> Vec<WaylandEvent> {
         // Two types of WaylandEvent sources:
-        // 1. External events emitted via WaylandEventEmitter (they don't need to
-        //    trigger dispatching)
+        // 1. External events emitted via WaylandEventEmitter (they don't need
+        //    to trigger dispatching)
         // 2. Events coming from Wayland connection
         if !token.from_wayland() {
             self.wayland_events.lock().unwrap().drain(..).collect()
@@ -346,7 +357,7 @@ impl From<WaylandError> for InternalDispatcherError {
 
 struct InternalDispatcherThread {
     conn: Option<Connection>,
-    event_queue: EventQueue<Application>,
+    event_loop: EventLoop<'static, Application>,
     count_reader: Option<std::sync::mpsc::Receiver<Option<usize>>>,
     count_sender: std::sync::mpsc::Sender<Option<usize>>,
     dispatch_fn: Option<Arc<dyn Fn(DispatchToken) + Sync + Send + 'static>>,
@@ -357,13 +368,14 @@ struct InternalDispatcherThread {
 impl InternalDispatcherThread {
     fn new(
         conn: Connection,
-        event_queue: EventQueue<Application>,
+        event_loop: EventLoop<'static, Application>,
         dispatch_fn: Arc<dyn Fn(DispatchToken) + Sync + Send + 'static>,
     ) -> Self {
         let (count_sender, count_reader) = std::sync::mpsc::channel::<Option<usize>>();
+
         InternalDispatcherThread {
             conn: Some(conn),
-            event_queue,
+            event_loop,
             count_sender,
             count_reader: Some(count_reader),
             dispatch_fn: Some(dispatch_fn),
@@ -422,7 +434,8 @@ impl InternalDispatcherThread {
 
         conn.flush()?;
 
-        // This function execution can take sometimes seconds (if no events are coming)
+        // This function execution can take sometimes seconds (if no events are
+        // coming)
         if let Some(guard) = conn.prepare_read() {
             guard.read_without_dispatch()?;
         } else {
@@ -437,11 +450,10 @@ impl InternalDispatcherThread {
 
     /// Dispatch pending events, and return collected Wayland events
     pub(crate) fn dispatch_pending(&mut self, app: &mut Application) -> Vec<WaylandEvent> {
-        let count = self
-            .event_queue
-            .dispatch_pending(app)
-            .expect("Wayland dispatch failed");
-        let _ = self.count_sender.send(Some(count));
+        self.event_loop
+            .dispatch(Duration::from_millis(16), app)
+            .unwrap();
+        let _ = self.count_sender.send(Some(1));
         app.take_wayland_events()
     }
 }
@@ -615,7 +627,8 @@ impl PointerHandler for Application {
     ) {
         for event in events {
             match event.kind {
-                // Changing cursor shape requires last enter serial number, we are storing it here
+                // Changing cursor shape requires last enter serial number, we
+                // are storing it here
                 PointerEventKind::Enter { serial } => {
                     self.last_pointer_enter_serial = Some(serial);
                     self.last_pointer = Some(pointer.clone());
@@ -732,7 +745,15 @@ impl SeatHandler for Application {
         trace!("[MAIN] New seat capability: {:?}", capability);
         if capability == Capability::Keyboard {
             trace!("[MAIN] Creating wl_keyboard");
-            match self.seat_state.get_keyboard(qh, &seat, None) {
+            match self.seat_state.get_keyboard_with_repeat(
+                qh,
+                &seat,
+                None,
+                self.loop_handle.clone(),
+                Box::new(|app, _wl_kbd, event| {
+                    app.push_wayland_event(WaylandEvent::KeyRepeat(event));
+                }),
+            ) {
                 Ok(_wl_keyboard) => {
                     trace!("[MAIN] wl_keyboard created successfully");
                 }
